@@ -105,7 +105,7 @@ class DB {
                     )`);
 
                     // -- Sprints
-                    db.run(`CREATE TABLE IF NOT EXISTS task (
+                    db.run(`CREATE TABLE IF NOT EXISTS sprint (
                         id TEXT PRIMARY KEY,
                         createdAt INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
                         dueDate INTEGER(4)

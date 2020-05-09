@@ -9,6 +9,8 @@ const compression = require("compression");
 const user = require("./routes/user");
 const tasks = require("./routes/jsonapi/tasks");
 const sprints = require("./routes/jsonapi/sprints");
+const todo = require("./routes/jsonapi/todo");
+const tag = require("./routes/jsonapi/tag");
 
 const app = express();
 
@@ -27,6 +29,8 @@ app.use(compression());
 app.use("/api/", user);
 app.use("/api/:username", tasks);
 app.use("/api/:username", sprints);
+app.use("/api/:username", todo);
+app.use("/api/:username", tag);
 
 app.get("/status", (req, res) => res.json({ status: "online" }));
 
