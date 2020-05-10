@@ -34,4 +34,28 @@ router.get("/tags/:tagID?", async (req, res) => {
 
 });
 
+
+router.post("/tags/", async (req, res) => {
+    const { username } = req.params;
+    const db = new DB(username);
+    const conn = await db.conn();
+
+    console.log(JSON.stringify(req.body));
+
+    const { data: { id } } = req.body;
+
+    conn.run(
+        "INSERT OR IGNORE INTO tag(id) VALUES (?);", [id], err => {
+            if (err) {
+                logger.error(err);
+                res.status(500);
+            }
+            else {
+                res.json({ data: { type: "tag", id } });
+            }
+        }
+    );
+});
+
+
 module.exports = router;

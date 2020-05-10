@@ -86,9 +86,9 @@ class DB {
                         description TEXT,
                         done INTEGER(1) DEFAULT 0,
                         deleted INTEGER(1) DEFAULT 0,
-                        doneUntil INTEGER(4),
-                        createdAt INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
-                        updatedAt INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
+                        done_until INTEGER(4),
+                        created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
+                        updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
                     )`);
 
                     // -- Tags
@@ -97,33 +97,35 @@ class DB {
                     )`);
 
                     // -- Relation tasks <-> tags
-                    db.run(`CREATE TABLE IF NOT EXISTS taskTags (
-                        taskID TEXT,
-                        tag TEXT,
-                        FOREIGN KEY(taskID) REFERENCES task(id)
-                        FOREIGN KEY(tag) REFERENCES tag(id)
+                    db.run(`CREATE TABLE IF NOT EXISTS task_tags (
+                        task_id TEXT,
+                        tag_id TEXT,
+                        FOREIGN KEY(task_id) REFERENCES task(id)
+                        FOREIGN KEY(tag_id) REFERENCES tag(id)
+                        PRIMARY KEY(task_id, tag_id)
                     )`);
 
                     // -- Sprints
                     db.run(`CREATE TABLE IF NOT EXISTS sprint (
                         id TEXT PRIMARY KEY,
-                        createdAt INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
-                        dueDate INTEGER(4)
+                        created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
+                        due_date INTEGER(4)
                     )`);
 
                     // -- Relation Sprint <-> tags
-                    db.run(`CREATE TABLE IF NOT EXISTS sprintTags (
-                        sprintID TEXT,
-                        tag TEXT,
-                        FOREIGN KEY(sprintID) REFERENCES sprint(id)
-                        FOREIGN KEY(tag) REFERENCES tag(id)
+                    db.run(`CREATE TABLE IF NOT EXISTS sprint_tags (
+                        sprint_id TEXT,
+                        tag_id TEXT,
+                        FOREIGN KEY(sprint_id) REFERENCES sprint(id)
+                        FOREIGN KEY(tag_id) REFERENCES tag(id)
+                        PRIMARY KEY(sprint_id, tag_id)
                     )`);
 
                     // -- Todo
                     db.run(`CREATE TABLE IF NOT EXISTS todo (
                         id TEXT PRIMARY KEY,
-                        taskID TEXT,
-                        FOREIGN KEY(taskID) REFERENCES task(id)
+                        task_id TEXT,
+                        FOREIGN KEY("task_id") REFERENCES task(id)
                     )`);
                 });
 
@@ -151,6 +153,43 @@ class DB {
         };
     }
 
+    async addTags(tags) {
+        const conn = await this.db.conn();
+
+        return new Promise((resolve, reject) => {
+            conn.run(
+                `INSERT OR IGNORE INTO tag(id) values ${tags.map(() => "(?)").join(" ")};`,
+                tags.map(({ id }) => id),
+                err => {
+                    if (err) {
+                        reject(err);
+                    }
+                    else {
+                        resolve(tags);
+                    }
+                }
+            );
+        });
+    }
+
+    async updateTodo({ id, relationships: { task: { id: taskID } } }) {
+        const conn = await this.db.conn();
+
+        return new Promise((resolve, reject) => {
+            conn.run(
+                `INSERT OR IGNORE INTO todo(id, task_id) values (?, ?);`,
+                [id, taskID],
+                err => {
+                    if (err) {
+                        reject(err);
+                    }
+                    else {
+                        resolve(todo);
+                    }
+                }
+            );
+        });
+    }
 }
 
 module.exports = DB;

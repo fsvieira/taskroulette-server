@@ -4,7 +4,7 @@
  */
 require('dotenv').config();
 const express = require("express");
-// const bodyParser = require("body-parser");
+const bodyParser = require("body-parser");
 const compression = require("compression");
 const user = require("./routes/user");
 const tasks = require("./routes/jsonapi/tasks");
@@ -21,8 +21,8 @@ app.use((req, res, next) => {
     next();
 });
 
-// app.use(bodyParser.urlencoded());
-// app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json({ type: "application/vnd.api+json" }));
 app.use(compression());
 
 // curl -d '{"username":"fsvieira", "password":"xpto"}' -H "Content-Type: application/json" -X POST http://localhost:9000/api/login

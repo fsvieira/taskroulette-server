@@ -34,4 +34,20 @@ router.get("/todos/:todoID?", async (req, res) => {
 
 });
 
+
+router.post("/todos/", async (req, res) => {
+    try {
+        const { username } = req.params;
+        const db = new DB(username);
+
+        const todo = await db.updateTodo(req.body);
+
+        res.json(todo);
+    } catch (e) {
+        console.log(e);
+        logger.error(e);
+        res.status(500);
+    }
+});
+
 module.exports = router;

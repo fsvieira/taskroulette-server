@@ -45,8 +45,8 @@ router.post("/sprints/", async (req, res) => {
         const {
             id,
             attributes: {
-                createdAt,
-                dueDate
+                "created-at": createdAt,
+                "due-date": dueDate
             }, relationships: {
                 tags: {
                     data: tags
@@ -66,13 +66,13 @@ router.post("/sprints/", async (req, res) => {
             .concat(tags.map(({ id: tagID }) => [id, tagID]).reduce((acc, ids) => acc.concat(ids), []));
 
         const tagsInserts = `INSERT INTO tag(id) values ${tags.map(() => "(?)").join(" ")};`;
-        const sprintTagsInserts = `INSERT INTO sprintTag(sprintID, tagID) values ${tags.map(() => "(?, ?)").join(" ")};`;
+        const sprintTagsInserts = `INSERT INTO sprint_tag(sprint_id, tag_id) values ${tags.map(() => "(?, ?)").join(" ")};`;
 
         conn.exec(
             `INSERT INTO sprint (
                 id,
-                createdAt=?,
-                dueDate
+                created_at,
+                due_date
             ) VALUES(
                 ?,
                 ?,
@@ -80,8 +80,8 @@ router.post("/sprints/", async (req, res) => {
             )
             ON CONFLICT(id) DO UPDATE SET 
                 id=?,
-                createdAt=?,
-                dueDate=?
+                created_at=?,
+                due-date=?
             ;
             
             ${tagsInserts}
