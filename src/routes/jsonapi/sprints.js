@@ -3,7 +3,7 @@ const { logger } = require("../../logger");
 const express = require("express");
 const router = express.Router({ mergeParams: true });
 const DB = require("../../db/db");
-
+const moment = require("moment");
 
 router.get("/sprints/:sprintID?", async (req, res) => {
     try {
@@ -22,6 +22,8 @@ router.get("/sprints/:sprintID?", async (req, res) => {
                     }
                 });
         });
+
+        console.log("TODO: send it on jsonapi format!!");
 
         res.json({ data });
 
@@ -56,8 +58,8 @@ router.post("/sprints/", async (req, res) => {
 
         const sprintParams = [
             id,
-            createdAt,
-            dueDate
+            moment.utc(createdAt).unix(),
+            moment.utc(dueDate).unix()
         ];
 
         const params = sprintParams

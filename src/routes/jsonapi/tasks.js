@@ -70,9 +70,9 @@ router.get("/tasks/:taskID?", async (req, res) => {
             attributes: {
                 done: !!done,
                 deleted: !!deleted,
-                "done-until": done_until ? moment.unix(done_until) : null,
-                "created-at": moment.unix(created_at).toISOString(),
-                "updated-at": moment.unix(updated_at).toISOString(),
+                "done-until": done_until ? moment.unix(done_until).valueOf() : null,
+                "created-at": moment.unix(created_at).valueOf(),
+                "updated-at": moment.unix(updated_at).valueOf(),
                 ...attr
             },
             relationships: {
@@ -126,9 +126,9 @@ router.post("/tasks/", async (req, res) => {
         description,
         done,
         deleted,
-        doneUntil ? moment(doneUntil).unix() : undefined,
-        moment(createdAt).unix(),
-        moment(updatedAt).unix()
+        doneUntil ? moment.utc(doneUntil).unix() : undefined,
+        moment.utc(createdAt).unix(),
+        moment.utc(updatedAt).unix()
     ];
 
     const insertTask = `INSERT INTO task (
