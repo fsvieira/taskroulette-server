@@ -168,7 +168,7 @@ router.post("/tasks/", async (req, res) => {
                 console.log(err, insertTask);
                 res.status(500);
             }
-            else {
+            else if (tags.length) {
                 const insertTaskTags = `INSERT OR IGNORE INTO task_tags(task_id, tag_id) values ${tags.map(() => "(?, ?)").join(", ")};`;
                 conn.run(
                     insertTaskTags,
@@ -184,6 +184,9 @@ router.post("/tasks/", async (req, res) => {
                         }
                     }
                 )
+            }
+            else {
+                res.json(req.body);
             }
         }
     );
