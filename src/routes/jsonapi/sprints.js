@@ -63,7 +63,6 @@ router.post("/sprints/", async (req, res) => {
         ];
 
         const params = sprintParams
-            .concat(sprintParams)
             .concat(tags.map(({ id }) => id))
             .concat(tags.map(({ id: tagID }) => [id, tagID]).reduce((acc, ids) => acc.concat(ids), []));
 
@@ -79,12 +78,7 @@ router.post("/sprints/", async (req, res) => {
                 ?,
                 ?,
                 ?
-            )
-            ON CONFLICT(id) DO UPDATE SET 
-                id=?,
-                created_at=?,
-                due-date=?
-            ;
+            );
             
             ${tagsInserts}
             ${sprintTagsInserts}

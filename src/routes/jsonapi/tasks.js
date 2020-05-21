@@ -146,21 +146,12 @@ router.post("/tasks/", async (req, res) => {
             ?,
             ?,
             ?
-        )
-        ON CONFLICT(id) DO UPDATE SET 
-            id=?,
-            description=?,
-            done=?,
-            deleted=?,
-            done_until=?,
-            created_at=?,
-            updated_at=?
-        ;
+        );
     `;
 
     conn.run(
         insertTask,
-        taskParams.concat(taskParams),
+        taskParams,
         err => {
             if (err) {
                 logger.error(err);
