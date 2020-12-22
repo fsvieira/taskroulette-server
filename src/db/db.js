@@ -1,6 +1,10 @@
 const path = require("path");
 const mkdirp = require("mkdirp");
 const sqlite3 = require("sqlite3");
+const {
+    taskToJSONAPI,
+    tasksToJSONAPI
+} = require("./jsonapi");
 
 const dbs = {};
 
@@ -42,42 +46,6 @@ class DB {
                         }
                     }
                 );
-
-
-                /*
-                {
-	models: {
-		task: {
-			attributes: {
-				description: { type: "string" },
-				done: { type: "boolean" },
-				deleted: { type: "boolean" },
-				doneUntil: { type: "date-time" },
-				createdAt: { type: "date-time" },
-				updatedAt: { type: "date-time" }
-			},
-			relationships: {
-				tags: { type: "hasMany", model: "tag" }
-			}
-		},
-		tag: {},
-		sprint: {
-			attributes: {
-				createdAt: { type: "date-time" },
-				dueDate: { type: "date-time" },
-			},
-			relationships: {
-				tags: { type: "hasMany", model: "tag" }
-			}
-		},
-		todo: {
-			relationships: {
-				tags: { type: "hasMany", model: "tag" },
-				task: { type: "hasOne", model: "task" }
-			}
-		}
-	}
-}*/
 
                 db.serialize(() => {
                     // -- Tasks
@@ -153,7 +121,31 @@ class DB {
         };
     }
 
+    async run(stmt, params, success) {
+        const conn = await this.conn();
+
+        return new Promise((resolve, reject) => {
+            conn.run(stmt, params, err =>
+                err ? reject(err) : resolve(success)
+            );
+        })
+    }
+
+    async all(stmt, params) {
+        const conn = await this.conn();
+
+        return new Promise((resolve, reject) => {
+            conn.all(stmt, params, (err, rows) =>
+                err ? reject(err) : resolve(rows)
+            );
+        })
+    }
+
+    /**
+     * Tags
+     */
     async addTags(tags) {
+        /*
         const conn = await this.db.conn();
 
         return new Promise((resolve, reject) => {
@@ -169,16 +161,29 @@ class DB {
                     }
                 }
             );
-        });
+        });*/
+        return this.run(
+            `INSERT OR IGNORE INTO tag(id) values ${tags.map(() => "(?)").join(" ")};`,
+            tags.map(({ id }) => id),
+            tags
+        );
     }
 
-    async updateTodo({ id, relationships: { task: { id: taskID } } }) {
+    /**
+     * Todo
+     */
+    async updateTodo(todo) {
+        /*
         const conn = await this.db.conn();
 
         return new Promise((resolve, reject) => {
             conn.run(
-                `INSERT OR IGNORE INTO todo(id, task_id) values (?, ?);`,
-                [id, taskID],
+                `INSERT OR IGNORE INTO 
+                    todo(id, task_id) values (?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                    task_id=?
+                ;`,
+                [id, taskID, taskID],
                 err => {
                     if (err) {
                         reject(err);
@@ -188,8 +193,64 @@ class DB {
                     }
                 }
             );
-        });
+        });*/
+        console.log("TODO", JSON.stringify(todo));
+        const { data: { id, relationships } } = todo;
+
+        if (relationships) {
+            const { task: { id: taskID } } = relationships;
+
+            return this.run(
+                `INSERT OR IGNORE INTO 
+                    todo(id, task_id) values (?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                    task_id=?
+                ;`,
+                [id, taskID, taskID],
+                todo
+            );
+        }
+
+        return todo;
     }
+
+    /**
+     * Task
+     */
+    getTasks(filter, taskID) {
+        let where = [];
+        let params = [];
+        const bool = ["false", "true"]
+        if (filter) {
+            const { deleted, done } = filter;
+            const deletedBool = bool.indexOf(deleted);
+            const doneBool = bool.indexOf(done);
+
+            if (deletedBool !== -1) {
+                where.push("deleted=?");
+                params.push(deletedBool);
+            }
+
+            if (doneBool !== -1) {
+                where.push("done=?");
+                params.push(doneBool);
+            }
+        }
+
+        if (taskID) {
+            where.push("id=?");
+            params.push(taskID);
+        }
+
+        const sql = `SELECT * FROM task ${where.length ? `WHERE ${where.join(" AND ")}` : ""};`;
+
+        return this.all(sql, params);
+    }
+
+    async getTasksJSONAPI(filter, taskID) {
+        return tasksToJSONAPI(await getTasks(filter, taskID));
+    }
+
 }
 
 module.exports = DB;

@@ -27,10 +27,12 @@ app.use(compression());
 
 // curl -d '{"username":"fsvieira", "password":"xpto"}' -H "Content-Type: application/json" -X POST http://localhost:9000/api/login
 app.use("/api/", user);
+
 app.use("/api/:username", tasks);
 app.use("/api/:username", sprints);
 app.use("/api/:username", todo);
 app.use("/api/:username", tag);
+
 
 app.get("/status", (req, res) => res.json({ status: "online" }));
 

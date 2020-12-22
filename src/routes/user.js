@@ -1,23 +1,37 @@
-const jwt = require('jsonwebtoken');
 const { logger } = require("../logger");
 
 const express = require("express");
 const router = express.Router({ mergeParams: true });
 
-const { SECRET } = process.env;
+const auth = require("../utils/auth");
 
 router.post("/login", async (req, res) => {
-    console.log("LOGIN!!");
-    const { username, password } = req.body;
-
     try {
-        const token = jwt.sign({ username }, SECRET);
+
+        const {
+            data: {
+                id: login, attributes: { password, forever }
+            }
+        } = req.body;
+
+        const username = await auth.getUsername(login, password);
+
+        const token = auth.token({ username }, forever);
 
         res.json({ token, user: { username } });
     }
     catch (e) {
         logger.error(e);
-        res.status(500);
+
+        let code = 500;
+        if (e === 'WRONG_PASSWORD') {
+            code = 401;
+        }
+        else if (e === 'USER_NOT_FOUND') {
+            code = 403;
+        }
+
+        res.status(code).send();
     }
 });
 

@@ -1,0 +1,39 @@
+{
+  "name": "taskroulette-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fsvieira/taskroulette-server.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/fsvieira/taskroulette-server/issues"
+  },
+  "homepage": "https://github.com/fsvieira/taskroulette-server#readme",
+  "dependencies": {
+    "body-parser": "^1.19.0",
+    "compress": "^0.99.0",
+    "compression": "^1.7.4",
+    "dotenv": "^8.2.0",
+    "express": "^4.17.1",
+    "faye": "^1.2.4",
+    "jsonwebtoken": "^8.5.1",
+    "knex": "^0.21.1",
+    "mkdirp": "^1.0.4",
+    "moment": "^2.25.3",
+    "mongodb": "^3.5.2",
+    "node-websocket": "^0.1.6",
+    "nodejs-websocket": "^1.7.2",
+    "winston": "^3.2.1",
+    "ws": "^7.2.1"
+  },
+  "devDependencies": {
+    "sqlite3": "^4.2.0"
+  }
+}
