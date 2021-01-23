@@ -2,16 +2,15 @@ const path = require("path");
 const mkdirp = require("mkdirp");
 const sqlite3 = require("sqlite3");
 const {
-    taskToJSONAPI,
     tasksToJSONAPI
 } = require("./jsonapi");
 
 const dbs = {};
 
 class DB {
-    constructor(username) {
-        this.username = username;
-        this.dir = path.join(process.cwd(), "dbs", username);
+    constructor(userID) {
+        this.userID = userID;
+        this.dir = path.join(process.cwd(), "dbs", "u" + userID);
         this.file = path.join(this.dir, "db.sqlite");
     }
 

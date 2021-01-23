@@ -1,5 +1,5 @@
 const { logger } = require("../logger");
-const { getUsername } = require("./db");
+const { getUser } = require("./db");
 const jwt = require("jsonwebtoken");
 
 const SECRET = process.env.SECRET;
@@ -10,6 +10,8 @@ function unauthorized(res) {
 
 function required(req, res, next) {
     const auth = req.get("authorization");
+
+    console.log(`GET AUTH => ${JSON.stringify(auth)}`);
 
     if (auth) {
         const [type, token] = auth.split(" ");
@@ -24,6 +26,7 @@ function required(req, res, next) {
                     else {
                         const user = decoded.user;
                         req.body.user = user;
+                        console.log(JSON.stringify(user));
                         next();
                     }
                 });
@@ -45,11 +48,10 @@ function required(req, res, next) {
 }
 
 function token(user, forever) {
-
     return jwt.sign(
-        { user },
+        { user: { ...user, forever } },
         SECRET,
-        forever ? undefined : { expiresIn: 60 * 60 * 4 }
+        forever ? undefined : { expiresIn: 60 * 60 * 30 }
     );
 }
 
@@ -57,7 +59,7 @@ function token(user, forever) {
 module.exports = {
     required,
     token,
-    getUsername
+    getUser
 };
 
 

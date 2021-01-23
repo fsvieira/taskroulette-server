@@ -7,18 +7,15 @@ const auth = require("../utils/auth");
 
 router.post("/login", async (req, res) => {
     try {
-
         const {
-            data: {
-                id: login, attributes: { password, forever }
-            }
+            id: login, password, forever
         } = req.body;
 
-        const username = await auth.getUsername(login, password);
+        const user = await auth.getUser(login, password);
 
-        const token = auth.token({ username }, forever);
+        const token = auth.token({ userID: user.userID }, forever);
 
-        res.json({ token, user: { username } });
+        res.json({ token, user });
     }
     catch (e) {
         logger.error(e);

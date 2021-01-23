@@ -4,11 +4,13 @@ const express = require("express");
 const router = express.Router({ mergeParams: true });
 const DB = require("../../db/db");
 
+const auth = require("../../utils/auth");
 
-router.get("/tags/:tagID?", async (req, res) => {
+router.get("/tags/:tagID?", auth.required, async (req, res) => {
     try {
-        const { username, tagID } = req.params;
-        const db = new DB(username);
+        const { tagID } = req.params;
+        const userID = req.body.user.userID;
+        const db = new DB(userID);
         const conn = await db.conn();
 
         const data = await new Promise((resolve, reject) => {
@@ -35,9 +37,9 @@ router.get("/tags/:tagID?", async (req, res) => {
 });
 
 
-router.post("/tags/", async (req, res) => {
-    const { username } = req.params;
-    const db = new DB(username);
+router.post("/tags/", auth.required, async (req, res) => {
+    const userID = req.body.user.userID;
+    const db = new DB(userID);
     const conn = await db.conn();
 
     console.log(JSON.stringify(req.body));

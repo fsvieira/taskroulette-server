@@ -4,11 +4,13 @@ const express = require("express");
 const router = express.Router({ mergeParams: true });
 const DB = require("../../db/db");
 
+const auth = require("../../utils/auth");
 
-router.get("/todos/:todoID?", async (req, res) => {
+router.get("/todos/:todoID?", auth.required, async (req, res) => {
     try {
-        const { username, todoID } = req.params;
-        const db = new DB(username);
+        const { todoID } = req.params;
+        const userID = req.body.user.userID;
+        const db = new DB(userID);
         const conn = await db.conn();
 
         const data = await new Promise((resolve, reject) => {
@@ -35,10 +37,10 @@ router.get("/todos/:todoID?", async (req, res) => {
 });
 
 
-router.post("/todos/", async (req, res) => {
+router.post("/todos/", auth.required, async (req, res) => {
     try {
-        const { username } = req.params;
-        const db = new DB(username);
+        const userID = req.body.user.userID;
+        const db = new DB(userID);
 
         const todo = await db.updateTodo(req.body);
 

@@ -5,6 +5,8 @@ const router = express.Router({ mergeParams: true });
 const DB = require("../../db/db");
 const moment = require("moment");
 
+const auth = require("../../utils/auth");
+
 async function getTask(db, taskID, filter) {
     const data = await db.getTasks(filter, taskID);
 
@@ -38,10 +40,11 @@ async function getTask(db, taskID, filter) {
     return { data: json };
 }
 
-router.get("/tasks/:taskID?", async (req, res) => {
+router.get("/tasks/:taskID?", auth.required, async (req, res) => {
     try {
-        const { username, taskID } = req.params;
-        const db = new DB(username);
+        const { taskID } = req.params;
+        const userID = req.body.user.userID;
+        const db = new DB(userID);
         const filter = req.query.filter;
 
         res.json(await getTask(db, filter, taskID));
@@ -53,9 +56,9 @@ router.get("/tasks/:taskID?", async (req, res) => {
 
 });
 
-router.post("/tasks/", async (req, res) => {
-    const { username } = req.params;
-    const db = new DB(username);
+router.post("/tasks/", auth.required, async (req, res) => {
+    const userID = req.body.user.userID;
+    const db = new DB(userID);
     const conn = await db.conn();
 
     console.log(JSON.stringify(req.body));
@@ -141,10 +144,11 @@ router.post("/tasks/", async (req, res) => {
 })
 
 // TODO: it should return everything like a get request. 
-router.patch("/tasks/:taskID?", async (req, res) => {
+router.patch("/tasks/:taskID?", auth.required, async (req, res) => {
     try {
-        const { username, taskID } = req.params;
-        const db = new DB(username);
+        const { taskID } = req.params;
+        const userID = req.body.user.userID;
+        const db = new DB(userID);
         const conn = await db.conn();
 
         console.log(JSON.stringify(req.body));

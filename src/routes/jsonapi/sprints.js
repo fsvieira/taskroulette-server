@@ -5,10 +5,14 @@ const router = express.Router({ mergeParams: true });
 const DB = require("../../db/db");
 const moment = require("moment");
 
-router.get("/sprints/:sprintID?", async (req, res) => {
+const auth = require("../../utils/auth");
+
+router.get("/sprints/:sprintID?", auth.required, async (req, res) => {
     try {
-        const { username, sprintID } = req.params;
-        const db = new DB(username);
+        const { sprintID } = req.params;
+        const userID = req.body.user.userID;
+
+        const db = new DB(userID);
         const conn = await db.conn();
 
         const data = await new Promise((resolve, reject) => {
@@ -36,10 +40,10 @@ router.get("/sprints/:sprintID?", async (req, res) => {
 
 });
 
-router.post("/sprints/", async (req, res) => {
+router.post("/sprints/", auth.required, async (req, res) => {
     try {
-        const { username } = req.params;
-        const db = new DB(username);
+        const userID = req.body.user.userID;
+        const db = new DB(userID);
         const conn = await db.conn();
 
         console.log(JSON.stringify(req.body));

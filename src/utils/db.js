@@ -6,8 +6,7 @@ const crypto = require("crypto");
 
 const dir = path.join(process.cwd(), "dbs");
 const file = path.join(dir, "users.sqlite");
-const ITERATIONS = 10000;
-const DIGEST = "sha256";
+const ITERATIONS = 1000;
 
 let db;
 
@@ -28,10 +27,12 @@ async function open() {
             db.serialize(() => {
                 // -- User
                 db.run(`CREATE TABLE IF NOT EXISTS user (
-                        username TEXT PRIMARY KEY,
+                        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE,
                         email TEXT UNIQUE,
                         hash TEXT,
-                        salt TEXT
+                        salt TEXT,
+                        expiration_date INTEGER(4),
                         created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
                         updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
                     )`);
@@ -80,25 +81,25 @@ async function isPasswordCorrect(savedHash, savedSalt, passwordAttempt) {
     return savedHash === await sha512(passwordAttempt, savedSalt);
 }
 
-async function getUsername(login, password) {
+async function getUser(login, password) {
     // await register(login, 'sv.filipe@gmail.com', password);
 
     return new Promise(async (resolve, reject) => (await conn()).get(
-        `SELECT username, hash, salt FROM user WHERE 
-            username=? OR 
-            email=?            
+        `SELECT user_id AS userID, email, username, hash, salt, expiration_date AS expirationDate FROM user WHERE 
+            (username=? OR email=?) AND expiration_date > strftime('%s','now')         
         `,
         [login, login],
         async (err, row) => {
             if (err) {
-                console.log(e);
                 reject(err);
             }
             else if (row) {
-                const { username, hash, salt } = row;
+                const { hash, salt, ...userInfo } = row;
+
+                console.log(JSON.stringify(userInfo), JSON.stringify(row));
 
                 if (await isPasswordCorrect(hash, salt, password)) {
-                    resolve(username);
+                    resolve(userInfo);
                 }
                 else {
                     reject("WRONG_PASSWORD");
@@ -113,7 +114,7 @@ async function getUsername(login, password) {
 
 function save(username, email, hash, salt) {
     return new Promise(async (resolve, reject) => (await conn()).run(
-        `INSERT INTO user (username, email, hash, salt) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO user (username, email, hash, salt, expiration_date) VALUES (?, ?, ?, ?, strftime('%s', 'now', '+60 day'))`,
         [
             username,
             email,
@@ -121,8 +122,6 @@ function save(username, email, hash, salt) {
             salt
         ],
         (err, row) => {
-            console.log(err, JSON.stringify(row));
-
             if (err) {
                 reject(err);
             }
@@ -139,8 +138,10 @@ async function register(username, email, password) {
     return save(username, email, hash, salt);
 }
 
+// register("fsvieira", "sv.filipe@gmail.com", "xpto");
+
 module.exports = {
-    getUsername,
+    getUser,
     register
 };
 
