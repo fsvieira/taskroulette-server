@@ -10,6 +10,7 @@ const dbs = {};
 class DB {
     constructor(userID) {
         this.userID = userID;
+        // TODO: add also username ? 
         this.dir = path.join(process.cwd(), "dbs", "u" + userID);
         this.file = path.join(this.dir, "db.sqlite");
     }
