@@ -51,7 +51,7 @@ function token(user, forever) {
     return jwt.sign(
         { user: { ...user, forever } },
         SECRET,
-        forever ? undefined : { expiresIn: 60 * 60 * 30 }
+        forever ? undefined : { expiresIn: 60 * 14 }
     );
 }
 
@@ -59,6 +59,7 @@ function token(user, forever) {
 module.exports = {
     required,
     token,
+    ticket,
     getUser
 };
 

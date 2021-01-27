@@ -21,6 +21,11 @@ var CREATE = 1,
     UPDATE = 2,
     DELETE = 3;
 
+/*
+TODO: 
+    * From hour to hour check if user has sync privileges.
+*/
+
 function SyncServer(port) {
     // This sample sync server works against a RAM database - an object of tables + an array of changes to the database
 

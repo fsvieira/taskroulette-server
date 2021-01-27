@@ -32,4 +32,28 @@ router.post("/login", async (req, res) => {
     }
 });
 
+router.get("/renew", auth.required, async (req, res) => {
+    try {
+        const token = auth.token(req.body.user, req.body.user.forever);
+
+        res.json({ token });
+    }
+    catch (e) {
+        logger.error(e);
+        res.status(500).send();
+    }
+});
+
+router.get("/ticket", auth.required, async (req, res) => {
+    try {
+        const token = auth.ticket(req.body.user, req.body.user.forever);
+
+        res.json({ token });
+    }
+    catch (e) {
+        logger.error(e);
+        res.status(500).send();
+    }
+});
+
 module.exports = router;
