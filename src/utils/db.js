@@ -80,6 +80,24 @@ async function hashPassword(password) {
 async function isPasswordCorrect(savedHash, savedSalt, passwordAttempt) {
     return savedHash === await sha512(passwordAttempt, savedSalt);
 }
+async function getUserInfo(userID) {
+    return new Promise(async (resolve, reject) => (await conn()).get(
+        `SELECT * FROM user WHERE user_id=?`,
+        [userID],
+        async (err, row) => {
+            if (err) {
+                reject(err);
+            }
+            else if (row) {
+                const { hash, salt, password, ...userInfo } = row;
+                resolve(userInfo);
+            }
+            else {
+                reject("USER_NOT_FOUND");
+            }
+        }
+    ));
+}
 
 async function getUser(login, password) {
     // await register(login, 'sv.filipe@gmail.com', password);
@@ -142,6 +160,7 @@ async function register(username, email, password) {
 
 module.exports = {
     getUser,
-    register
+    register,
+    getUserInfo
 };
 

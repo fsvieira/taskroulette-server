@@ -59,7 +59,6 @@ function token(user, forever) {
 module.exports = {
     required,
     token,
-    ticket,
     getUser
 };
 

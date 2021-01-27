@@ -14,10 +14,16 @@
     applied after client changes.
  */
 
-var ws = require("nodejs-websocket"); // This will work also in browser if "websocketserver-shim.js" is included.
+const ws = require("nodejs-websocket"); // This will work also in browser if "websocketserver-shim.js" is included.
+const { getUserInfo } = require("./utils/db");
+const jwt = require("jsonwebtoken");
+
+const { logger } = require("./logger");
+
+const SECRET = process.env.SECRET;
 
 // CREATE / UPDATE / DELETE constants:
-var CREATE = 1,
+const CREATE = 1,
     UPDATE = 2,
     DELETE = 3;
 
@@ -114,18 +120,6 @@ function SyncServer(port) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
     // ----------------------------------------------------------------------------
     //
     //
@@ -166,7 +160,40 @@ function SyncServer(port) {
             conn.on("text", function (message) {
                 var request = JSON.parse(message);
                 var type = request.type;
+                console.log(request);
+
                 if (type == "clientIdentity") {
+                    const [type, token] = request.token.split(" ");
+
+                    console.log(type, token);
+                    if (type === "Bearer") {
+                        try {
+                            jwt.verify(token, SECRET, (err, decoded) => {
+                                if (err) {
+                                    logger.error(err);
+                                    // unauthorized(res);
+                                    console.log(err);
+                                }
+                                else {
+                                    const user = decoded.user;
+                                    console.log(JSON.stringify(user));
+
+                                    getUserInfo(user.userID).then(user => console.log("User INFO!", user));
+                                }
+                            });
+                        }
+                        catch (e) {
+                            logger.error(e);
+                            console.log(e);
+                            // unauthorized(res);
+                        }
+                    }
+                    else {
+                        logger.error("Bad Auth token!");
+                        console.log("BAD AUTH TOKEN!!");
+                        // unauthorized(res);
+                    }
+
                     // Client Hello: Client says "Hello, My name is <clientIdentity>!" or "Hello, I'm newborn. Please give me a name!"
                     // Client identity is used for the following purpose:
                     //  * When client sends its changes, register the changes into server database and mark each change with the clientIdentity.
