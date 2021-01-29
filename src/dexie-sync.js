@@ -16,7 +16,9 @@
 
 const ws = require("nodejs-websocket"); // This will work also in browser if "websocketserver-shim.js" is included.
 const { getUserInfo } = require("./utils/db");
+const DB = require("./db/db");
 const jwt = require("jsonwebtoken");
+const moment = require("moment");
 
 const { logger } = require("./logger");
 
@@ -31,6 +33,80 @@ const CREATE = 1,
 TODO: 
     * From hour to hour check if user has sync privileges.
 */
+
+async function wsAuth(conn, request, nextClientIdentity) {
+    const [type, token] = request.token.split(" ");
+
+    console.log(type, token);
+    if (type === "Bearer") {
+        try {
+            jwt.verify(token, SECRET, async (err, decoded) => {
+                if (err) {
+                    logger.error(err);
+                    // unauthorized(res);
+                    console.log(err);
+                }
+                else {
+                    const user = decoded.user;
+                    console.log(JSON.stringify(user));
+
+                    const userInfo = await getUserInfo(user.userID);
+
+                    if (!userInfo || userInfo.expiration_date < moment().unix()) {
+                        conn.sendText(JSON.stringify({
+                            type: "error",
+                            requestId: requestId,
+                            message: "INACTIVE_SYNC"
+                        }));
+                        conn.close();
+                    }
+                    else {
+                        // Client Hello: Client says "Hello, My name is <clientIdentity>!" or "Hello, I'm newborn. Please give me a name!"
+                        // Client identity is used for the following purpose:
+                        //  * When client sends its changes, register the changes into server database and mark each change with the clientIdentity.
+                        //  * When sending back changes to client, leave out those marked with the client id so that changes aren't echoed back.
+                        // The client should initiate the connection by submitting or requesting a client identity.
+                        // This should be done before sending any changes to us.
+
+                        // Client submits his identity or requests one
+                        if (request.clientIdentity) {
+                            // Client has an identity that we have given earlier
+                            conn.clientIdentity = request.clientIdentity;
+                        } else {
+                            // Client requests an identity. Provide one.
+                            conn.sendText(JSON.stringify({
+                                type: "clientIdentity",
+                                clientIdentity: conn.clientIdentity
+                            }));
+                        }
+
+                        conn.clientIdentity = nextClientIdentity();
+                        conn.userInfo = userInfo;
+                        conn.db = new DB(userInfo.userID);
+                    }
+                }
+            });
+        }
+        catch (e) {
+            logger.error(e);
+            conn.sendText(JSON.stringify({
+                type: "error",
+                requestId: requestId,
+                message: "BAD_TOKEN"
+            }));
+            conn.close();
+        }
+    }
+    else {
+        logger.error("Bad Auth token!");
+        conn.sendText(JSON.stringify({
+            type: "error",
+            requestId: requestId,
+            message: "BAD_TOKEN"
+        }));
+        conn.close();
+    }
+}
 
 function SyncServer(port) {
     // This sample sync server works against a RAM database - an object of tables + an array of changes to the database
@@ -130,12 +206,12 @@ function SyncServer(port) {
     //
     // ----------------------------------------------------------------------------
 
-    var nextClientIdentity = 1;
+    let nextClientIdentity = 1;
 
     this.start = function () {
         ws.createServer(function (conn) {
-            console.log("connect")
-            var syncedRevision = 0; // Used when sending changes to client. Only send changes above syncedRevision since client is already in sync with syncedRevision.
+            let syncedRevision = 0; // Used when sending changes to client. Only send changes above syncedRevision since client is already in sync with syncedRevision.
+            let userInfo;
 
             function sendAnyChanges() {
                 // Get all changes after syncedRevision that was not performed by the client we're talkin' to.
@@ -163,56 +239,7 @@ function SyncServer(port) {
                 console.log(request);
 
                 if (type == "clientIdentity") {
-                    const [type, token] = request.token.split(" ");
-
-                    console.log(type, token);
-                    if (type === "Bearer") {
-                        try {
-                            jwt.verify(token, SECRET, (err, decoded) => {
-                                if (err) {
-                                    logger.error(err);
-                                    // unauthorized(res);
-                                    console.log(err);
-                                }
-                                else {
-                                    const user = decoded.user;
-                                    console.log(JSON.stringify(user));
-
-                                    getUserInfo(user.userID).then(user => console.log("User INFO!", user));
-                                }
-                            });
-                        }
-                        catch (e) {
-                            logger.error(e);
-                            console.log(e);
-                            // unauthorized(res);
-                        }
-                    }
-                    else {
-                        logger.error("Bad Auth token!");
-                        console.log("BAD AUTH TOKEN!!");
-                        // unauthorized(res);
-                    }
-
-                    // Client Hello: Client says "Hello, My name is <clientIdentity>!" or "Hello, I'm newborn. Please give me a name!"
-                    // Client identity is used for the following purpose:
-                    //  * When client sends its changes, register the changes into server database and mark each change with the clientIdentity.
-                    //  * When sending back changes to client, leave out those marked with the client id so that changes aren't echoed back.
-                    // The client should initiate the connection by submitting or requesting a client identity.
-                    // This should be done before sending any changes to us.
-
-                    // Client submits his identity or requests one
-                    if (request.clientIdentity) {
-                        // Client has an identity that we have given earlier
-                        conn.clientIdentity = request.clientIdentity;
-                    } else {
-                        // Client requests an identity. Provide one.
-                        conn.clientIdentity = nextClientIdentity++;
-                        conn.sendText(JSON.stringify({
-                            type: "clientIdentity",
-                            clientIdentity: conn.clientIdentity
-                        }));
-                    }
+                    wsAuth(conn, request, () => nextClientIdentity++);
                 } else if (type == "subscribe") {
                     // Client wants to subscribe to server changes happened or happening after given syncedRevision
                     syncedRevision = request.syncedRevision || 0;
