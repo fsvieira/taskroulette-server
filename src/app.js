@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json({ type: "application/vnd.api+json" }));
+app.use(bodyParser.json({ type: "application/json" }));
 app.use(compression());
 
 // curl -d '{"username":"fsvieira", "password":"xpto"}' -H "Content-Type: application/json" -X POST http://localhost:9000/api/login

@@ -32,6 +32,7 @@ const CREATE = 1,
 /*
 TODO: 
     * From hour to hour check if user has sync privileges.
+    * don't send or write anything until clientIdentity is verified. 
 */
 
 async function wsAuth(conn, request, nextClientIdentity) {
@@ -72,22 +73,27 @@ async function wsAuth(conn, request, nextClientIdentity) {
                         if (request.clientIdentity) {
                             // Client has an identity that we have given earlier
                             conn.clientIdentity = request.clientIdentity;
-                        } else {
-                            // Client requests an identity. Provide one.
-                            conn.sendText(JSON.stringify({
-                                type: "clientIdentity",
-                                clientIdentity: conn.clientIdentity
-                            }));
+                        }
+                        else {
+                            conn.clientIdentity = nextClientIdentity();
                         }
 
-                        conn.clientIdentity = nextClientIdentity();
+                        // Client requests an identity. Provide one.
+                        conn.sendText(JSON.stringify({
+                            type: "clientIdentity",
+                            clientIdentity: conn.clientIdentity
+                        }));
+
+                        console.log("Start DB!");
                         conn.userInfo = userInfo;
+                        console.log(userInfo);
                         conn.db = new DB(userInfo.userID);
                     }
                 }
             });
         }
         catch (e) {
+            console.log("BAD:TOKEN-1", e);
             logger.error(e);
             conn.sendText(JSON.stringify({
                 type: "error",
@@ -98,6 +104,8 @@ async function wsAuth(conn, request, nextClientIdentity) {
         }
     }
     else {
+        console.log("BAD:TOKEN-2");
+
         logger.error("Bad Auth token!");
         conn.sendText(JSON.stringify({
             type: "error",
@@ -120,80 +128,94 @@ function SyncServer(port) {
     //
     //
     // ----------------------------------------------------------------------------
+
     var db = {
         tables: {},  // Tables: Each key is a table and its value is another object where each key is the primary key and value is the record / object that is stored in ram.
         changes: [], // Special table that records all changes made to the db. In this simple sample, we let it grow infinitly. In real world, we would have had a regular cleanup of old changes.
         uncommittedChanges: {}, // Map<clientID,Array<change>> Changes where partial=true buffered for being committed later on.
         revision: 0, // Current revision of the database.
-        subscribers: [], // Subscribers to when database got changes. Used by server connections to be able to push out changes to their clients as they occur.
-
-        create: function (table, key, obj, clientIdentity) {
-            // Create table if it doesnt exist:
-            db.tables[table] = db.tables[table] || {};
-            // Put the obj into to table
-            db.tables[table][key] = obj;
-            // Register the change:
-            db.changes.push({
-                rev: ++db.revision,
-                source: clientIdentity,
-                type: CREATE,
-                table: table,
-                key: key,
-                obj: obj
-            });
-            db.trigger();
-        },
-        update: function (table, key, modifications, clientIdentity) {
-            if (db.tables[table]) {
-                var obj = db.tables[table][key];
-                if (obj) {
-                    applyModifications(obj, modifications);
+        // subscribers: [], // Subscribers to when database got changes. Used by server connections to be able to push out changes to their clients as they occur.
+        /*
+                create: function (table, key, obj, clientIdentity) {
+                    console.log("CREATE", JSON.stringify({
+                        table, key, obj, clientIdentity
+                    }));
+        
+                    // Create table if it doesnt exist:
+                    db.tables[table] = db.tables[table] || {};
+                    // Put the obj into to table
+                    db.tables[table][key] = obj;
+                    // Register the change:
                     db.changes.push({
                         rev: ++db.revision,
                         source: clientIdentity,
-                        type: UPDATE,
+                        type: CREATE,
                         table: table,
                         key: key,
-                        mods: modifications
+                        obj: obj
                     });
                     db.trigger();
+                },
+        
+                update: function (table, key, modifications, clientIdentity) {
+                    console.log("UPDATE", JSON.stringify({
+                        table, key, modifications, clientIdentity
+                    }));
+        
+                    if (db.tables[table]) {
+                        var obj = db.tables[table][key];
+                        if (obj) {
+                            applyModifications(obj, modifications);
+                            db.changes.push({
+                                rev: ++db.revision,
+                                source: clientIdentity,
+                                type: UPDATE,
+                                table: table,
+                                key: key,
+                                mods: modifications
+                            });
+                            db.trigger();
+                        }
+                    }
+                },
+                'delete': function (table, key, clientIdentity) {
+                    console.log("DELETE", JSON.stringify({
+                        table, key, clientIdentity
+                    }));
+        
+                    if (db.tables[table]) {
+                        if (db.tables[table][key]) {
+                            delete db.tables[table][key];
+                            db.changes.push({
+                                rev: ++db.revision,
+                                source: clientIdentity,
+                                type: DELETE,
+                                table: table,
+                                key: key,
+                            });
+                            db.trigger();
+                        }
+                    }
+                },
+                trigger: function () {
+                    if (!db.trigger.delayedHandle) {
+                        // Delay the trigger so that it's only called once per bunch of changes instead of being called for each single change.
+                        db.trigger.delayedHandle = setTimeout(function () {
+                            delete db.trigger.delayedHandle;
+                            db.subscribers.forEach(function (subscriber) {
+                                try { subscriber(); } catch (e) { }
+                            });
+                        }, 0);
+                    }
+                },
+                subscribe: function (fn) {
+                    db.subscribers.push(fn);
+                },
+                unsubscribe: function (fn) {
+                    db.subscribers.splice(db.subscribers.indexOf(fn), 1);
                 }
-            }
-        },
-        'delete': function (table, key, clientIdentity) {
-            if (db.tables[table]) {
-                if (db.tables[table][key]) {
-                    delete db.tables[table][key];
-                    db.changes.push({
-                        rev: ++db.revision,
-                        source: clientIdentity,
-                        type: DELETE,
-                        table: table,
-                        key: key,
-                    });
-                    db.trigger();
-                }
-            }
-        },
-        trigger: function () {
-            if (!db.trigger.delayedHandle) {
-                // Delay the trigger so that it's only called once per bunch of changes instead of being called for each single change.
-                db.trigger.delayedHandle = setTimeout(function () {
-                    delete db.trigger.delayedHandle;
-                    db.subscribers.forEach(function (subscriber) {
-                        try { subscriber(); } catch (e) { }
-                    });
-                }, 0);
-            }
-        },
-        subscribe: function (fn) {
-            db.subscribers.push(fn);
-        },
-        unsubscribe: function (fn) {
-            db.subscribers.splice(db.subscribers.indexOf(fn), 1);
-        }
+                */
     };
-
 
 
     // ----------------------------------------------------------------------------
@@ -211,7 +233,6 @@ function SyncServer(port) {
     this.start = function () {
         ws.createServer(function (conn) {
             let syncedRevision = 0; // Used when sending changes to client. Only send changes above syncedRevision since client is already in sync with syncedRevision.
-            let userInfo;
 
             function sendAnyChanges() {
                 // Get all changes after syncedRevision that was not performed by the client we're talkin' to.
@@ -233,20 +254,27 @@ function SyncServer(port) {
                 syncedRevision = currentRevision; // Make sure we only send revisions coming after this revision next time and not resend the above changes over and over.
             }
 
-            conn.on("text", function (message) {
+            conn.on("text", async (message) => {
                 var request = JSON.parse(message);
                 var type = request.type;
                 console.log(request);
 
+                console.log(type);
+
                 if (type == "clientIdentity") {
                     wsAuth(conn, request, () => nextClientIdentity++);
                 } else if (type == "subscribe") {
+                    console.log("SUBSCRIBE!");
                     // Client wants to subscribe to server changes happened or happening after given syncedRevision
                     syncedRevision = request.syncedRevision || 0;
                     // Send any changes we have currently:
                     sendAnyChanges();
                     // Start subscribing for additional changes:
-                    db.subscribe(sendAnyChanges);
+
+                    /*
+                    * TODO: Subscribe to a list, when database is ready listen for database changes and send them ? 
+                    */
+                    conn.db.subscribe(sendAnyChanges);
 
                 } else if (type == "changes") {
                     // Client sends its changes to us.
@@ -304,19 +332,20 @@ function SyncServer(port) {
                             var resolved = resolveConflicts(request.changes, reducedServerChangeSet);
 
                             // Now apply the resolved changes:
-                            resolved.forEach(function (change) {
+                            for (let i = 0; i < resolved.length; i++) {
+                                const change = resolved[i];
                                 switch (change.type) {
                                     case CREATE:
-                                        db.create(change.table, change.key, change.obj, conn.clientIdentity);
+                                        await conn.db.create(change.table, change.key, change.obj, conn.clientIdentity);
                                         break;
                                     case UPDATE:
-                                        db.update(change.table, change.key, change.mods, conn.clientIdentity);
+                                        await conn.db.update(change.table, change.key, change.mods, conn.clientIdentity);
                                         break;
                                     case DELETE:
-                                        db.delete(change.table, change.key, conn.clientIdentity);
+                                        await conn.db.delete(change.table, change.key, conn.clientIdentity);
                                         break;
                                 }
-                            });
+                            }
                         }
 
                         // Now ack client that we have recieved his changes. This should be done no matter if the're buffered into uncommittedChanges
@@ -339,7 +368,7 @@ function SyncServer(port) {
 
             conn.on("close", function () {
                 // When client disconnects, stop subscribing from db.
-                db.unsubscribe(sendAnyChanges);
+                conn.db.unsubscribe(sendAnyChanges);
             });
         }).listen(port);
     }

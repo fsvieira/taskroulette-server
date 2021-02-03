@@ -7,6 +7,7 @@ const auth = require("../utils/auth");
 
 router.post("/login", async (req, res) => {
     try {
+        console.log(req.body);
         const {
             id: login, password, forever
         } = req.body;
@@ -29,30 +30,6 @@ router.post("/login", async (req, res) => {
         }
 
         res.status(code).send();
-    }
-});
-
-router.get("/renew", auth.required, async (req, res) => {
-    try {
-        const token = auth.token(req.body.user, req.body.user.forever);
-
-        res.json({ token });
-    }
-    catch (e) {
-        logger.error(e);
-        res.status(500).send();
-    }
-});
-
-router.get("/ticket", auth.required, async (req, res) => {
-    try {
-        const token = auth.ticket(req.body.user, req.body.user.forever);
-
-        res.json({ token });
-    }
-    catch (e) {
-        logger.error(e);
-        res.status(500).send();
     }
 });
 
