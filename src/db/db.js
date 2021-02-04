@@ -20,21 +20,23 @@ class DBConnection {
 
     async conn() {
         return new Promise(async (resolve, reject) => {
-            if (!this._conn) {
-                await mkdirp(this.dir);
+            try {
+                if (!this._conn) {
+                    await mkdirp(this.dir);
 
-                let db = new sqlite3.Database(this.file,
-                    sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
-                    err => {
-                        if (err) {
-                            reject(err);
+                    console.log("OPEN " + this.file);
+                    let db = new sqlite3.Database(this.file,
+                        sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
+                        err => {
+                            if (err) {
+                                reject(err);
+                            }
                         }
-                    }
-                );
+                    );
 
-                db.serialize(() => {
-                    // -- Tasks
-                    db.run(`CREATE TABLE IF NOT EXISTS task (
+                    db.serialize(() => {
+                        // -- Tasks
+                        db.run(`CREATE TABLE IF NOT EXISTS task (
                         task_id TEXT PRIMARY KEY,
                         description TEXT,
                         done INTEGER(1) DEFAULT 0,
@@ -45,49 +47,53 @@ class DBConnection {
                         server_updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
                     )`);
 
-                    // -- Tags
-                    /*
-                    db.run(`CREATE TABLE IF NOT EXISTS tag (
-                        tag_id TEXT PRIMARY KEY
-                    )`);*/
+                        // -- Tags
+                        /*
+                        db.run(`CREATE TABLE IF NOT EXISTS tag (
+                            tag_id TEXT PRIMARY KEY
+                        )`);*/
 
-                    // -- Relation tasks <-> tags
-                    db.run(`CREATE TABLE IF NOT EXISTS task_tags (
+                        // -- Relation tasks <-> tags
+                        db.run(`CREATE TABLE IF NOT EXISTS task_tags (
                         task_id TEXT,
                         tag TEXT,
                         FOREIGN KEY(task_id) REFERENCES task(id)
                         PRIMARY KEY(task_id, tag)
                     )`);
 
-                    // -- Sprints
-                    db.run(`CREATE TABLE IF NOT EXISTS sprint (
+                        // -- Sprints
+                        db.run(`CREATE TABLE IF NOT EXISTS sprint (
                         task_id TEXT PRIMARY KEY,
                         created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
                         due_date INTEGER(4),
                         server_updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
                     )`);
 
-                    // -- Relation Sprint <-> tags
-                    db.run(`CREATE TABLE IF NOT EXISTS sprint_tags (
+                        // -- Relation Sprint <-> tags
+                        db.run(`CREATE TABLE IF NOT EXISTS sprint_tags (
                         sprint_id TEXT,
                         tag TEXT,
                         FOREIGN KEY(sprint_id) REFERENCES sprint(id)
                         PRIMARY KEY(sprint_id, tag)
                     )`);
 
-                    // -- Todo
-                    db.run(`CREATE TABLE IF NOT EXISTS todo (
+                        // -- Todo
+                        db.run(`CREATE TABLE IF NOT EXISTS todo (
                         todo_id TEXT PRIMARY KEY,
                         task_id TEXT,
                         server_updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')),
                         FOREIGN KEY("task_id") REFERENCES task(id)
                     )`);
-                });
+                    });
 
-                this._conn = db;
+                    this._conn = db;
+                }
+
+                resolve(this._conn);
             }
-
-            resolve(this._conn);
+            catch (e) {
+                reject(e);
+            }
         });
     }
 
@@ -164,10 +170,20 @@ class DB {
     /*
         Create, Update, Delete
     */
-    async createTask(id, { description, done, deleted, doneUntil = null, createdAt, updatedAt, tags }) {
-        console.log("TAGS", tags);
+    async addTaskTags(taskID, tags) {
+        const tagsArray = Object.keys(tags).filter(v => tags[v]);
 
-        const tagsArray = tags.keys().filter(v => tags[v]);
+        await this.run(`DELETE FROM task_tags WHERE task_id=? AND tag not in (?);`,
+            [taskID, tagsArray]
+        );
+
+        await this.run(`INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES ${tagsArray.map(() => "(?, ?)")};`,
+            tagsArray.map(tag => [taskID, tag]).reduce((acc, v) => acc.concat(v), [])
+        );
+    }
+
+    async createTask(taskID, { description, done, deleted, doneUntil = null, createdAt, updatedAt, tags }) {
+        console.log("TAGS", tags);
 
         await this.run(
             `INSERT INTO TASK (
@@ -187,41 +203,71 @@ class DB {
                 done_until=?,
                 updated_at=?
             `, [
-                id, description, done, deleted, doneUntil, createdAt, updatedAt,
+                taskID, description, done, deleted, doneUntil, createdAt, updatedAt,
                 description, done, deleted, doneUntil, updatedAt
             ]
         );
 
-        await this.run(`DELETE FROM task_tags WHERE task_id=? AND tag not in (?);`,
-            [id, tagsArray]
-        );
-
-        await this.run(`INSERT IGNORE task_tags (task_id, tag) VALUES ${tags.map("(?, ?)")};`,
-            tags.map(tag => [id, tag]).reduce((acc, v) => acc.concat(v), [])
-        );
-
+        return addTaskTags(taskID, tags);
     }
 
-    async create(table, key, obj, clientIdentity) {
-        console.log("DB CREATE", JSON.stringify({
-            table, key, obj, clientIdentity
-        }));
-
+    async create(table, key, obj) {
         switch (table) {
             case "tasks": {
-                this.createTask(key, obj)
+                return this.createTask(key, obj)
             }
         }
 
         this.trigger();
     }
 
-    async update(table, key, modifications, clientIdentity) {
+    async updateTask(key, modifications, clientIdentity) {
+        const taskFields = [
+            "description", "done", "deleted", "done_until", "updated_at"
+        ];
+
+        const allFields = Object.keys(modifications);
+        const fields = allFields.filter(field => taskFields.includes(field));
+
+        const sql = `UPDATE TASK SET 
+            ${fields.map(field => `${field}=?`).join(",")},
+            server_updated_at=strftime('%%s', 'now')
+         WHERE task_id=?`;
+
+        console.log(sql, modifications);
+
+        const allTags = allFields.filter(tags => tags.startsWith("tags."));
+        const deletedTags = allTags.filter(tag => !modifications[tag]).map(tag => tag.replace("tags.", ""));
+        const newTags = allTags.filter(tag => modifications[tag]).map(tag => tag.replace("tags.", ""));
+
+        console.log("DELETED TAGS: ", deletedTags.join(","), " ;; NEW TAGS: ", newTags.join(", "))
+
+        return this.run(
+            sql,
+            fields.map(field => modifications[field]).concat([key])
+        ).then(() => {
+            /*if (modifications.tags) {
+                return this.addTaskTags(taskID, modifications.tags);
+            }*/
+        });
+    }
+
+    async update(table, key, obj, clientIdentity) {
         console.log("DB UPDATE", JSON.stringify({
-            table, key, modifications, clientIdentity
+            table, key, obj, clientIdentity
         }));
 
-        this.trigger();
+        try {
+            switch (table) {
+                case "tasks": {
+                    return await this.updateTask(key, obj)
+                }
+            }
+
+            this.trigger();
+        } catch (e) {
+            console.log(e);
+        }
     }
 
     async delete(table, key, clientIdentity) {
@@ -264,7 +310,7 @@ class DB {
 
         return new Promise((resolve, reject) => {
             conn.run(
-                `INSERT OR IGNORE INTO tag(id) values ${tags.map(() => "(?)").join(" ")};`,
+                `INSERT OR IGNORE INTO tag(id) values ${ tags.map(() => "(?)").join(" ") }; `,
                 tags.map(({ id }) => id),
                 err => {
                     if (err) {
@@ -277,7 +323,7 @@ class DB {
             );
         });*/
         return this.run(
-            `INSERT OR IGNORE INTO tag(id) values ${tags.map(() => "(?)").join(" ")};`,
+            `INSERT OR IGNORE INTO tag(id) values ${tags.map(() => "(?)").join(" ")}; `,
             tags.map(({ id }) => id),
             tags
         );
@@ -292,11 +338,11 @@ class DB {
 
         return new Promise((resolve, reject) => {
             conn.run(
-                `INSERT OR IGNORE INTO 
-                    todo(id, task_id) values (?, ?)
-                ON CONFLICT (id) DO UPDATE SET
-                    task_id=?
-                ;`,
+                `INSERT OR IGNORE INTO
+        todo(id, task_id) values(?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+        task_id =?
+                ; `,
                 [id, taskID, taskID],
                 err => {
                     if (err) {
@@ -315,11 +361,11 @@ class DB {
             const { task: { id: taskID } } = relationships;
 
             return this.run(
-                `INSERT OR IGNORE INTO 
-                    todo(id, task_id) values (?, ?)
-                ON CONFLICT (id) DO UPDATE SET
-                    task_id=?
-                ;`,
+                `INSERT OR IGNORE INTO
+        todo(id, task_id) values(?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+        task_id =?
+                ; `,
                 [id, taskID, taskID],
                 todo
             );
@@ -356,7 +402,7 @@ class DB {
             params.push(taskID);
         }
 
-        const sql = `SELECT * FROM task ${where.length ? `WHERE ${where.join(" AND ")}` : ""};`;
+        const sql = `SELECT * FROM task ${where.length ? `WHERE ${where.join(" AND ")}` : ""}; `;
 
         return this.all(sql, params);
     }

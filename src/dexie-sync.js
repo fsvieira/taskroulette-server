@@ -84,10 +84,15 @@ async function wsAuth(conn, request, nextClientIdentity) {
                             clientIdentity: conn.clientIdentity
                         }));
 
-                        console.log("Start DB!");
-                        conn.userInfo = userInfo;
-                        console.log(userInfo);
-                        conn.db = new DB(userInfo.userID);
+                        try {
+                            console.log("Start DB!");
+                            conn.userInfo = userInfo;
+                            console.log(userInfo);
+                            conn.db = new DB(userInfo.user_id);
+                        }
+                        catch (e) {
+                            console.log(e);
+                        }
                     }
                 }
             });
