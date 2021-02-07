@@ -15,7 +15,7 @@ class DBConnection {
         this.file = path.join(this.dir, "db.sqlite");
         this._conn = null;
         this.closeTimeoutID = 0;
-        this.tiggerTimeoutID = 0;
+        this.triggerTimeoutID = 0;
     }
 
     async conn() {
@@ -98,11 +98,12 @@ class DBConnection {
     }
 
     trigger() {
-        if (!this.tiggerTimeoutID) {
+        console.log("Trigger");
+        if (!this.triggerTimeoutID) {
             // delay trigger to 5s, this will make 
             this.triggerTimeoutID = setTimeout(() => {
-                this.triggerTimeoutID;
-                this.subscribers.map(o => o.trigger());
+                this.triggerTimeoutID = 0;
+                this.subscribers.forEach(o => o.trigger());
             }, 5000);
         }
     }
@@ -170,6 +171,55 @@ class DB {
     /*
         Create, Update, Delete
     */
+
+    /* Tasks 
+        TODO:
+            - save device id (clientIdentity) on table,
+            - tags should have (taskID, tag, keep=[true, null])
+                * this is needed when sending changes to clients,
+            - on task add 2 revisions (syncRevision):
+                - create revision,
+                - update revision.
+    
+            if (syncRevision <  create_revision ) {
+                send create task, 
+                send {
+                    rev: 2,
+                    source: '6c29e53c-50c6-41ec-871a-3edd3a4cdb24',
+                        type: 1,
+                        table: 'tasks',
+                        key: '9da1e79f-f4ff-42ea-b181-640b441f49b2',
+                        obj: {
+                        taskID: '9da1e79f-f4ff-42ea-b181-640b441f49b2',
+                        description: 'Chrome 4 - Brave 4 #yeah',
+                        tags: [Object], // tags is an object {sometag: true, sometag2: true}
+                        done: 0,
+                        deleted: 0,
+                        createdAt: '2021-02-06T23:56:28.018Z',
+                        updatedAt: '2021-02-07T00:00:34.056Z'
+                    }
+                }
+            }
+            else if (syncRevision < update revision) {
+                // send update task, 
+                send {
+                    description: 'Chrome 4 - Brave 4 #yeah',
+                    'tags.tag1': null,
+                    'tags.tag4': null,
+                    'tags.tag5': null,
+                    'tags.tag2': null,
+                    'tags.tag6': null,
+                    'tags.yeah': true,
+                    updatedAt: '2021-02-07T00:00:34.056Z'
+                }
+
+                // all deleted tags from creation should be saved and sent as null. 
+            }
+            else {
+                nothing to do. 
+            }
+    */
+
     async addTaskTags(taskID, tags) {
         const tagsArray = Object.keys(tags).filter(v => tags[v]);
 
@@ -183,8 +233,7 @@ class DB {
     }
 
     async createTask(taskID, { description, done, deleted, doneUntil = null, createdAt, updatedAt, tags }) {
-        console.log("TAGS", tags);
-
+        console.log("ADD TASK ", description);
         await this.run(
             `INSERT INTO TASK (
                 task_id,
@@ -208,17 +257,18 @@ class DB {
             ]
         );
 
-        return addTaskTags(taskID, tags);
+        return this.addTaskTags(taskID, tags);
     }
 
     async create(table, key, obj) {
         switch (table) {
             case "tasks": {
-                return this.createTask(key, obj)
+                await this.createTask(key, obj);
+                break;
             }
         }
 
-        this.trigger();
+        this.db.trigger();
     }
 
     async updateTask(key, modifications, clientIdentity) {
@@ -260,11 +310,12 @@ class DB {
         try {
             switch (table) {
                 case "tasks": {
-                    return await this.updateTask(key, obj)
+                    await this.updateTask(key, obj)
+                    break;
                 }
             }
 
-            this.trigger();
+            this.db.trigger();
         } catch (e) {
             console.log(e);
         }
@@ -275,7 +326,7 @@ class DB {
             table, key, clientIdentity
         }));
 
-        this.trigger();
+        this.db.trigger();
     }
 
     async trigger() {
@@ -283,7 +334,7 @@ class DB {
             // Delay the trigger so that it's only called once per bunch of changes instead of being called for each single change.
             this.delayedHandle = setTimeout(() => {
                 delete this.delayedHandle;
-                this.subscribers.forEach(function (subscriber) {
+                this.subscribers.forEach(subscriber => {
                     try { subscriber(); } catch (e) {
                         console.log(e);
                     }

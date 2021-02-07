@@ -30,6 +30,7 @@
     "mongodb": "^3.5.2",
     "node-websocket": "^0.1.6",
     "nodejs-websocket": "^1.7.2",
+    "uuid": "^8.3.2",
     "winston": "^3.2.1"
   },
   "devDependencies": {

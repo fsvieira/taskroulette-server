@@ -19,6 +19,7 @@ const { getUserInfo } = require("./utils/db");
 const DB = require("./db/db");
 const jwt = require("jsonwebtoken");
 const moment = require("moment");
+const { v4: uuidv4 } = require('uuid');
 
 const { logger } = require("./logger");
 
@@ -38,7 +39,6 @@ TODO:
 async function wsAuth(conn, request, nextClientIdentity) {
     const [type, token] = request.token.split(" ");
 
-    console.log(type, token);
     if (type === "Bearer") {
         try {
             jwt.verify(token, SECRET, async (err, decoded) => {
@@ -49,8 +49,6 @@ async function wsAuth(conn, request, nextClientIdentity) {
                 }
                 else {
                     const user = decoded.user;
-                    console.log(JSON.stringify(user));
-
                     const userInfo = await getUserInfo(user.userID);
 
                     if (!userInfo || userInfo.expiration_date < moment().unix()) {
@@ -70,35 +68,29 @@ async function wsAuth(conn, request, nextClientIdentity) {
                         // This should be done before sending any changes to us.
 
                         // Client submits his identity or requests one
+                        console.log(request.clientIdentity);
                         if (request.clientIdentity) {
                             // Client has an identity that we have given earlier
                             conn.clientIdentity = request.clientIdentity;
                         }
                         else {
-                            conn.clientIdentity = nextClientIdentity();
+                            conn.clientIdentity = uuidv4(); // nextClientIdentity();
                         }
 
+                        console.log("CON ID", conn.clientIdentity);
                         // Client requests an identity. Provide one.
                         conn.sendText(JSON.stringify({
                             type: "clientIdentity",
                             clientIdentity: conn.clientIdentity
                         }));
 
-                        try {
-                            console.log("Start DB!");
-                            conn.userInfo = userInfo;
-                            console.log(userInfo);
-                            conn.db = new DB(userInfo.user_id);
-                        }
-                        catch (e) {
-                            console.log(e);
-                        }
+                        conn.userInfo = userInfo;
+                        conn.db = new DB(userInfo.user_id);
                     }
                 }
             });
         }
         catch (e) {
-            console.log("BAD:TOKEN-1", e);
             logger.error(e);
             conn.sendText(JSON.stringify({
                 type: "error",
@@ -109,8 +101,6 @@ async function wsAuth(conn, request, nextClientIdentity) {
         }
     }
     else {
-        console.log("BAD:TOKEN-2");
-
         logger.error("Bad Auth token!");
         conn.sendText(JSON.stringify({
             type: "error",
@@ -235,8 +225,9 @@ function SyncServer(port) {
 
     let nextClientIdentity = 1;
 
-    this.start = function () {
-        ws.createServer(function (conn) {
+    this.start = () => {
+        ws.createServer(conn => {
+            console.log("Conn");
             let syncedRevision = 0; // Used when sending changes to client. Only send changes above syncedRevision since client is already in sync with syncedRevision.
 
             function sendAnyChanges() {
@@ -249,6 +240,7 @@ function SyncServer(port) {
                 // Notice the current revision of the database. We want to send it to client so it knows what to ask for next time.
                 var currentRevision = db.revision;
 
+                console.log("Reduced Array", reducedArray);
                 conn.sendText(JSON.stringify({
                     type: "changes",
                     changes: reducedArray,
@@ -262,14 +254,9 @@ function SyncServer(port) {
             conn.on("text", async (message) => {
                 var request = JSON.parse(message);
                 var type = request.type;
-                console.log(request);
-
-                console.log(type);
-
                 if (type == "clientIdentity") {
                     wsAuth(conn, request, () => nextClientIdentity++);
                 } else if (type == "subscribe") {
-                    console.log("SUBSCRIBE!");
                     // Client wants to subscribe to server changes happened or happening after given syncedRevision
                     syncedRevision = request.syncedRevision || 0;
                     // Send any changes we have currently:
@@ -342,12 +329,38 @@ function SyncServer(port) {
                                 switch (change.type) {
                                     case CREATE:
                                         await conn.db.create(change.table, change.key, change.obj, conn.clientIdentity);
+                                        db.changes.push({
+                                            rev: ++db.revision,
+                                            source: conn.clientIdentity,
+                                            type: CREATE,
+                                            table: change.table,
+                                            key: change.key,
+                                            obj: change.obj
+                                        });
+
                                         break;
                                     case UPDATE:
                                         await conn.db.update(change.table, change.key, change.mods, conn.clientIdentity);
+                                        db.changes.push({
+                                            rev: ++db.revision,
+                                            source: conn.clientIdentity,
+                                            type: UPDATE,
+                                            table: change.table,
+                                            key: change.key,
+                                            mods: change.mods
+                                        });
+
                                         break;
                                     case DELETE:
                                         await conn.db.delete(change.table, change.key, conn.clientIdentity);
+                                        db.changes.push({
+                                            rev: ++db.revision,
+                                            source: conn.clientIdentity,
+                                            type: DELETE,
+                                            table: change.table,
+                                            key: change.key,
+                                        });
+
                                         break;
                                 }
                             }
@@ -360,6 +373,7 @@ function SyncServer(port) {
                             requestId: requestId,
                         }));
                     } catch (e) {
+                        console.log(e);
                         conn.sendText(JSON.stringify({
                             type: "error",
                             requestId: requestId,
