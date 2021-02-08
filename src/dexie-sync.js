@@ -251,15 +251,17 @@ function SyncServer(port) {
 
                 syncedRevision = currentRevision; // Make sure we only send revisions coming after this revision next time and not resend the above changes over and over.
                 */
+                const currentRevision = await conn.db.getSyncRevision();
                 const changes = await conn.db.getChanges(syncedRevision);
 
-                /*
+                console.log("CurrentRevision", currentRevision);
+
                 conn.sendText(JSON.stringify({
                     type: "changes",
                     changes,
-                    currentRevision: currentRevision,
+                    currentRevision,
                     partial: false // Tell client that these are the only changes we are aware of. Since our mem DB is syncronous, we got all changes in one chunk.
-                }));*/
+                }));
             }
 
             conn.on("text", async (message) => {

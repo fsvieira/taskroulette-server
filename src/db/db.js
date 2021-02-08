@@ -22,9 +22,10 @@ class DBConnection {
         this.triggerTimeoutID = 0;
         this.syncRevision = null;
         //        this.nextSyncRevision();
+        this.wait = [];
     }
 
-    async nextSyncRevision() {
+    async getSyncRevision() {
         if (this.syncRevision === null) {
             const data = await this.all(
                 `SELECT max(syncRevision) AS syncRevision FROM (
@@ -44,6 +45,11 @@ class DBConnection {
 
         }
 
+        return this.syncRevision;
+    }
+
+    async nextSyncRevision() {
+        await this.getSyncRevision();
         return ++this.syncRevision;
     }
 
@@ -68,7 +74,20 @@ class DBConnection {
     }
 
     async conn() {
-        return new Promise(async (resolve, reject) => {
+        if (this._conn) {
+            return this._conn;
+        }
+
+        return new Promise((resolve, reject) => {
+            this.wait.push({ resolve, reject });
+            this.openConn();
+        });
+    }
+
+    async openConn() {
+        if (!this.lock && !this._conn) {
+            this.lock = true;
+
             try {
                 if (!this._conn) {
                     await mkdirp(this.dir);
@@ -78,7 +97,8 @@ class DBConnection {
                         sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
                         err => {
                             if (err) {
-                                reject(err);
+                                this.wait.forEach(({ reject }) => reject(err));
+                                this.lock = false;
                             }
                         }
                     );
@@ -140,12 +160,12 @@ class DBConnection {
                     this._conn = db;
                 }
 
-                resolve(this._conn);
+                this.wait.forEach(({ resolve }) => resolve(this._conn));
             }
             catch (e) {
                 reject(e);
             }
-        });
+        }
     }
 
     trigger() {
@@ -199,6 +219,9 @@ class DB {
         this.db.unsubscribe(this);
     }
 
+    async getSyncRevision() {
+        return this.db.getSyncRevision();
+    }
     /*
         Get changes
     */
@@ -210,8 +233,8 @@ class DB {
         return tags;
     }
 
-    async getChanges(syncRevision) {
-        console.log(syncRevision);
+    async getTasksChanges(syncRevision) {
+        console.log("SyncRev ", syncRevision);
         const dbChanges = await this.db.all(`
             SELECT 
                 'tasks' AS 'table', 
@@ -231,9 +254,18 @@ class DB {
 
         for (let i = 0; i < dbChanges.length; i++) {
             const { table, key, rev, createRev, ...obj } = dbChanges[i];
+            const tags = await this.getTaskTags(key);
+
+            console.log(JSON.stringify(tags));
+            console.log("TEST UPDATE", syncRevision, createRev, rev);
 
             if (syncRevision < createRev) {
                 // TODO: get tags
+                obj.tags = tags.reduce((acc, { tag }) => {
+                    acc[tag] = true;
+                    return acc;
+                }, {});
+
                 changes.push({
                     rev,
                     type: CREATE,
@@ -241,22 +273,38 @@ class DB {
                     key,
                     obj
                 });
-
-                if (table === 'tasks') {
-                    const tags = await this.getTaskTags(key);
-                    obj.tags = tags.reduce((acc, { tag }) => {
-                        acc[tag] = true;
-                        return acc;
-                    }, {});
-                }
             }
             else {
-                console.log("UPDATE: ", change);
+                const { description, done, deleted, doneUntil, updatedAt } = obj;
+
+                changes.push({
+                    rev,
+                    type: UPDATE,
+                    table,
+                    key,
+                    mods: {
+                        description,
+                        done,
+                        deleted,
+                        doneUntil,
+                        updatedAt,
+                        ...(
+                            tags.reduce((acc, { tag }) => {
+                                acc[`tags.${tag}`] = true;
+                                return acc;
+                            }, {})
+                        )
+                    }
+                });
             }
         }
 
         console.log(JSON.stringify(changes));
         return changes;
+    }
+
+    async getChanges(syncRevision) {
+        return this.getTasksChanges(syncRevision);
     }
 
     /*
@@ -271,7 +319,7 @@ class DB {
             - on task add 2 revisions (syncRevision):
                 - create revision,
                 - update revision.
-    
+     
             if (syncRevision <  create_revision ) {
                 send create task, 
                 send {
@@ -303,7 +351,7 @@ class DB {
                     'tags.yeah': true,
                     updatedAt: '2021-02-07T00:00:34.056Z'
                 }
-
+    
                 // all deleted tags from creation should be saved and sent as null. 
             }
             else {
@@ -369,16 +417,21 @@ class DB {
     }
 
     async updateTask(key, modifications, clientIdentity) {
-        const taskFields = [
-            "description", "done", "deleted", "done_until", "updated_at"
-        ];
+        console.log(modifications);
+        const taskFields = {
+            "description": "description",
+            "done": "done",
+            "deleted": "deleted",
+            "doneUntil": "done_until",
+            "updateAt": "update_at"
+        }
 
         const syncRevision = await this.db.nextSyncRevision();
         const allFields = Object.keys(modifications);
-        const fields = allFields.filter(field => taskFields.includes(field));
+        const fields = allFields.filter(field => taskFields[field]);
 
         const sql = `UPDATE TASK SET 
-            ${fields.map(field => `${field}=?`).join(",")},
+            ${fields.map(field => `${taskFields[field]}=?`).join(",")},
             update_rev=?
          WHERE task_id=?`;
 
@@ -456,7 +509,7 @@ class DB {
     async addTags(tags) {
         /*
         const conn = await this.db.conn();
-
+    
         return new Promise((resolve, reject) => {
             conn.run(
                 `INSERT OR IGNORE INTO tag(id) values ${ tags.map(() => "(?)").join(" ") }; `,
@@ -484,7 +537,7 @@ class DB {
     async updateTodo(todo) {
         /*
         const conn = await this.db.conn();
-
+    
         return new Promise((resolve, reject) => {
             conn.run(
                 `INSERT OR IGNORE INTO
