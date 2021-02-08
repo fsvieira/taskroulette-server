@@ -7,6 +7,10 @@ const {
 
 const dbs = {};
 
+const CREATE = 1,
+    UPDATE = 2,
+    DELETE = 3;
+
 class DBConnection {
     constructor(userID) {
         this.subscribers = [];
@@ -32,17 +36,15 @@ class DBConnection {
                 )`);
 
             if (data) {
-                this.syncRevision = data[0].syncRevision + 1;
+                this.syncRevision = data[0].syncRevision;
             }
             else {
                 this.syncRevision = 0;
             }
 
-            return this.syncRevision;
         }
-        else {
-            return this.syncRevision++;
-        }
+
+        return ++this.syncRevision;
     }
 
     async run(stmt, params, success) {
@@ -195,6 +197,66 @@ class DB {
 
     close() {
         this.db.unsubscribe(this);
+    }
+
+    /*
+        Get changes
+    */
+    async getTaskTags(taskID) {
+        const tags = await this.db.all(`
+            SELECT * FROM task_tags where task_id=?;
+        `, [taskID]);
+
+        return tags;
+    }
+
+    async getChanges(syncRevision) {
+        console.log(syncRevision);
+        const dbChanges = await this.db.all(`
+            SELECT 
+                'tasks' AS 'table', 
+                task_id AS key, 
+                task_id AS taskID,
+                description,
+                done,
+                deleted,
+                done_until AS doneUntil,
+                created_at AS createdAt,
+                updated_at As updatedAt,
+                create_rev AS createRev,
+                update_rev As rev
+            from task where update_rev>?;`, [syncRevision]);
+
+        const changes = [];
+
+        for (let i = 0; i < dbChanges.length; i++) {
+            const { table, key, rev, createRev, ...obj } = dbChanges[i];
+
+            if (syncRevision < createRev) {
+                // TODO: get tags
+                changes.push({
+                    rev,
+                    type: CREATE,
+                    table,
+                    key,
+                    obj
+                });
+
+                if (table === 'tasks') {
+                    const tags = await this.getTaskTags(key);
+                    obj.tags = tags.reduce((acc, { tag }) => {
+                        acc[tag] = true;
+                        return acc;
+                    }, {});
+                }
+            }
+            else {
+                console.log("UPDATE: ", change);
+            }
+        }
+
+        console.log(JSON.stringify(changes));
+        return changes;
     }
 
     /*

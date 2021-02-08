@@ -230,8 +230,9 @@ function SyncServer(port) {
             console.log("Conn");
             let syncedRevision = 0; // Used when sending changes to client. Only send changes above syncedRevision since client is already in sync with syncedRevision.
 
-            function sendAnyChanges() {
+            async function sendAnyChanges() {
                 // Get all changes after syncedRevision that was not performed by the client we're talkin' to.
+                /*
                 var changes = db.changes.filter(function (change) { return change.rev > syncedRevision && change.source !== conn.clientIdentity; });
                 // Compact changes so that multiple changes on same object is merged into a single change.
                 var reducedSet = reduceChanges(changes, conn.clientIdentity);
@@ -249,6 +250,16 @@ function SyncServer(port) {
                 }));
 
                 syncedRevision = currentRevision; // Make sure we only send revisions coming after this revision next time and not resend the above changes over and over.
+                */
+                const changes = await conn.db.getChanges(syncedRevision);
+
+                /*
+                conn.sendText(JSON.stringify({
+                    type: "changes",
+                    changes,
+                    currentRevision: currentRevision,
+                    partial: false // Tell client that these are the only changes we are aware of. Since our mem DB is syncronous, we got all changes in one chunk.
+                }));*/
             }
 
             conn.on("text", async (message) => {
