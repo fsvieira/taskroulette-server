@@ -16,6 +16,53 @@ class DBConnection {
         this._conn = null;
         this.closeTimeoutID = 0;
         this.triggerTimeoutID = 0;
+        this.syncRevision = null;
+        //        this.nextSyncRevision();
+    }
+
+    async nextSyncRevision() {
+        if (this.syncRevision === null) {
+            const data = await this.all(
+                `SELECT max(syncRevision) AS syncRevision FROM (
+                    SELECT max(create_rev, update_rev) AS syncRevision FROM task
+                    UNION
+                    SELECT max(create_rev, update_rev) AS syncRevision FROM sprint
+                    UNION
+                    SELECT max(update_rev) AS syncRevision FROM todo
+                )`);
+
+            if (data) {
+                this.syncRevision = data[0].syncRevision + 1;
+            }
+            else {
+                this.syncRevision = 0;
+            }
+
+            return this.syncRevision;
+        }
+        else {
+            return this.syncRevision++;
+        }
+    }
+
+    async run(stmt, params, success) {
+        const conn = await this.conn();
+
+        return new Promise((resolve, reject) => {
+            conn.run(stmt, params, err =>
+                err ? reject(err) : resolve(success)
+            );
+        })
+    }
+
+    async all(stmt, params) {
+        const conn = await this.conn();
+
+        return new Promise((resolve, reject) => {
+            conn.all(stmt, params, (err, rows) =>
+                err ? reject(err) : resolve(rows)
+            );
+        })
     }
 
     async conn() {
@@ -37,15 +84,16 @@ class DBConnection {
                     db.serialize(() => {
                         // -- Tasks
                         db.run(`CREATE TABLE IF NOT EXISTS task (
-                        task_id TEXT PRIMARY KEY,
-                        description TEXT,
-                        done INTEGER(1) DEFAULT 0,
-                        deleted INTEGER(1) DEFAULT 0,
-                        done_until INTEGER(4),
-                        created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
-                        updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')),
-                        server_updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
-                    )`);
+                            task_id TEXT PRIMARY KEY,
+                            description TEXT,
+                            done INTEGER(1) DEFAULT 0,
+                            deleted INTEGER(1) DEFAULT 0,
+                            done_until INTEGER(4),
+                            created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
+                            updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')),
+                            create_rev INTEGER(8) DEFAULT 0,
+                            update_rev INTEGER(8) DEFAULT 0
+                        )`);
 
                         // -- Tags
                         /*
@@ -55,35 +103,36 @@ class DBConnection {
 
                         // -- Relation tasks <-> tags
                         db.run(`CREATE TABLE IF NOT EXISTS task_tags (
-                        task_id TEXT,
-                        tag TEXT,
-                        FOREIGN KEY(task_id) REFERENCES task(id)
-                        PRIMARY KEY(task_id, tag)
-                    )`);
+                            task_id TEXT,
+                            tag TEXT,
+                            FOREIGN KEY(task_id) REFERENCES task(id)
+                            PRIMARY KEY(task_id, tag)
+                        )`);
 
                         // -- Sprints
                         db.run(`CREATE TABLE IF NOT EXISTS sprint (
-                        task_id TEXT PRIMARY KEY,
-                        created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
-                        due_date INTEGER(4),
-                        server_updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now'))
-                    )`);
+                            task_id TEXT PRIMARY KEY,
+                            created_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')), 
+                            due_date INTEGER(4),
+                            create_rev INTEGER(8) DEFAULT 0,
+                            update_rev INTEGER(8) DEFAULT 0
+                        )`);
 
                         // -- Relation Sprint <-> tags
                         db.run(`CREATE TABLE IF NOT EXISTS sprint_tags (
-                        sprint_id TEXT,
-                        tag TEXT,
-                        FOREIGN KEY(sprint_id) REFERENCES sprint(id)
-                        PRIMARY KEY(sprint_id, tag)
-                    )`);
+                            sprint_id TEXT,
+                            tag TEXT,
+                            FOREIGN KEY(sprint_id) REFERENCES sprint(id)
+                            PRIMARY KEY(sprint_id, tag)
+                        )`);
 
                         // -- Todo
                         db.run(`CREATE TABLE IF NOT EXISTS todo (
-                        todo_id TEXT PRIMARY KEY,
-                        task_id TEXT,
-                        server_updated_at INTEGER(4) NOT NULL DEFAULT (strftime('%s','now')),
-                        FOREIGN KEY("task_id") REFERENCES task(id)
-                    )`);
+                            todo_id TEXT PRIMARY KEY,
+                            task_id TEXT,
+                            update_rev INTEGER(8) DEFAULT 0,
+                            FOREIGN KEY("task_id") REFERENCES task(id)
+                        )`);
                     });
 
                     this._conn = db;
@@ -148,26 +197,6 @@ class DB {
         this.db.unsubscribe(this);
     }
 
-    async run(stmt, params, success) {
-        const conn = await this.db.conn();
-
-        return new Promise((resolve, reject) => {
-            conn.run(stmt, params, err =>
-                err ? reject(err) : resolve(success)
-            );
-        })
-    }
-
-    async all(stmt, params) {
-        const conn = await this.db.conn();
-
-        return new Promise((resolve, reject) => {
-            conn.all(stmt, params, (err, rows) =>
-                err ? reject(err) : resolve(rows)
-            );
-        })
-    }
-
     /*
         Create, Update, Delete
     */
@@ -223,18 +252,21 @@ class DB {
     async addTaskTags(taskID, tags) {
         const tagsArray = Object.keys(tags).filter(v => tags[v]);
 
-        await this.run(`DELETE FROM task_tags WHERE task_id=? AND tag not in (?);`,
+        await this.db.run(`DELETE FROM task_tags WHERE task_id=? AND tag not in (?);`,
             [taskID, tagsArray]
         );
 
-        await this.run(`INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES ${tagsArray.map(() => "(?, ?)")};`,
+        await this.db.run(`INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES ${tagsArray.map(() => "(?, ?)")};`,
             tagsArray.map(tag => [taskID, tag]).reduce((acc, v) => acc.concat(v), [])
         );
     }
 
     async createTask(taskID, { description, done, deleted, doneUntil = null, createdAt, updatedAt, tags }) {
-        console.log("ADD TASK ", description);
-        await this.run(
+        const syncRevision = await this.db.nextSyncRevision();
+
+        console.log("Sync Rev ", this.db.syncRevision, syncRevision);
+
+        await this.db.run(
             `INSERT INTO TASK (
                 task_id,
                 description,
@@ -242,18 +274,21 @@ class DB {
                 deleted,
                 done_until,
                 created_at,
-                updated_at
+                updated_at,
+                create_rev,
+                update_rev
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
             ) ON CONFLICT(task_id) DO UPDATE SET
                 description=?,
                 done=?,
                 deleted=?,
                 done_until=?,
-                updated_at=?
+                updated_at=?,
+                update_rev=?
             `, [
-                taskID, description, done, deleted, doneUntil, createdAt, updatedAt,
-                description, done, deleted, doneUntil, updatedAt
+                taskID, description, done, deleted, doneUntil, createdAt, updatedAt, syncRevision, syncRevision,
+                description, done, deleted, doneUntil, updatedAt, syncRevision
             ]
         );
 
@@ -276,12 +311,13 @@ class DB {
             "description", "done", "deleted", "done_until", "updated_at"
         ];
 
+        const syncRevision = await this.db.nextSyncRevision();
         const allFields = Object.keys(modifications);
         const fields = allFields.filter(field => taskFields.includes(field));
 
         const sql = `UPDATE TASK SET 
             ${fields.map(field => `${field}=?`).join(",")},
-            server_updated_at=strftime('%%s', 'now')
+            update_rev=?
          WHERE task_id=?`;
 
         console.log(sql, modifications);
@@ -292,9 +328,9 @@ class DB {
 
         console.log("DELETED TAGS: ", deletedTags.join(","), " ;; NEW TAGS: ", newTags.join(", "))
 
-        return this.run(
+        return this.db.run(
             sql,
-            fields.map(field => modifications[field]).concat([key])
+            fields.map(field => modifications[field]).concat([syncRevision, key])
         ).then(() => {
             /*if (modifications.tags) {
                 return this.addTaskTags(taskID, modifications.tags);
@@ -373,7 +409,7 @@ class DB {
                 }
             );
         });*/
-        return this.run(
+        return this.db.run(
             `INSERT OR IGNORE INTO tag(id) values ${tags.map(() => "(?)").join(" ")}; `,
             tags.map(({ id }) => id),
             tags
@@ -411,11 +447,11 @@ class DB {
         if (relationships) {
             const { task: { id: taskID } } = relationships;
 
-            return this.run(
+            return this.db.run(
                 `INSERT OR IGNORE INTO
-        todo(id, task_id) values(?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-        task_id =?
+                    todo(id, task_id) values (?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                    task_id=?
                 ; `,
                 [id, taskID, taskID],
                 todo
