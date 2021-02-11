@@ -36,7 +36,7 @@ TODO:
     * don't send or write anything until clientIdentity is verified. 
 */
 
-async function wsAuth(conn, request, nextClientIdentity) {
+async function wsAuth(conn, request) {
     const [type, token] = request.token.split(" ");
 
     if (type === "Bearer") {
@@ -74,7 +74,7 @@ async function wsAuth(conn, request, nextClientIdentity) {
                             conn.clientIdentity = request.clientIdentity;
                         }
                         else {
-                            conn.clientIdentity = uuidv4(); // nextClientIdentity();
+                            conn.clientIdentity = uuidv4();
                         }
 
                         console.log("CON ID", conn.clientIdentity);
@@ -222,9 +222,6 @@ function SyncServer(port) {
     //
     //
     // ----------------------------------------------------------------------------
-
-    let nextClientIdentity = 1;
-
     this.start = () => {
         ws.createServer(conn => {
             console.log("Conn");
@@ -252,7 +249,7 @@ function SyncServer(port) {
                 syncedRevision = currentRevision; // Make sure we only send revisions coming after this revision next time and not resend the above changes over and over.
                 */
                 const currentRevision = await conn.db.getSyncRevision();
-                const changes = await conn.db.getChanges(syncedRevision);
+                const changes = await conn.db.getChanges(syncedRevision, conn.clientIdentity);
 
                 console.log("CurrentRevision", currentRevision);
 
@@ -262,13 +259,16 @@ function SyncServer(port) {
                     currentRevision,
                     partial: false // Tell client that these are the only changes we are aware of. Since our mem DB is syncronous, we got all changes in one chunk.
                 }));
+
+                syncedRevision = currentRevision;
             }
 
             conn.on("text", async (message) => {
                 var request = JSON.parse(message);
+                console.log(message);
                 var type = request.type;
                 if (type == "clientIdentity") {
-                    wsAuth(conn, request, () => nextClientIdentity++);
+                    wsAuth(conn, request);
                 } else if (type == "subscribe") {
                     // Client wants to subscribe to server changes happened or happening after given syncedRevision
                     syncedRevision = request.syncedRevision || 0;
@@ -305,6 +305,7 @@ function SyncServer(port) {
                         } else {
                             // This request is not partial. Time to commit.
                             // But first, check if we have previous changes from that client in uncommittedChanges because now is the time to commit them too.
+
                             if (db.uncommittedChanges[conn.clientIdentity]) {
                                 request.changes = db.uncommittedChanges[conn.clientIdentity].concat(request.changes);
                                 delete db.uncommittedChanges[conn.clientIdentity];
@@ -331,49 +332,37 @@ function SyncServer(port) {
                             //
                             //
                             // ----------------------------------------------
+                            /*
                             var baseRevision = request.baseRevision || 0;
                             var serverChanges = db.changes.filter(function (change) { return change.rev > baseRevision });
                             var reducedServerChangeSet = reduceChanges(serverChanges);
                             var resolved = resolveConflicts(request.changes, reducedServerChangeSet);
+                            */
+
+                            /*
+                                TODO, Solve conflicts:
+                                1. Cretate: "Insert ignore " (discard client changes if alredy exists),
+                                2. Update: update only if (rev = update_rev & client.update_at > server.update_at) or 
+                                    (rev > update_rev)
+                                3. Delete: delete wins.
+                            */
+                            const baseRevision = request.baseRevision || 0;
+                            const resolved = request.changes;
+
 
                             // Now apply the resolved changes:
                             for (let i = 0; i < resolved.length; i++) {
                                 const change = resolved[i];
+                                console.log(JSON.stringify(change));
                                 switch (change.type) {
                                     case CREATE:
                                         await conn.db.create(change.table, change.key, change.obj, conn.clientIdentity);
-                                        db.changes.push({
-                                            rev: ++db.revision,
-                                            source: conn.clientIdentity,
-                                            type: CREATE,
-                                            table: change.table,
-                                            key: change.key,
-                                            obj: change.obj
-                                        });
-
                                         break;
                                     case UPDATE:
                                         await conn.db.update(change.table, change.key, change.mods, conn.clientIdentity);
-                                        db.changes.push({
-                                            rev: ++db.revision,
-                                            source: conn.clientIdentity,
-                                            type: UPDATE,
-                                            table: change.table,
-                                            key: change.key,
-                                            mods: change.mods
-                                        });
-
                                         break;
                                     case DELETE:
                                         await conn.db.delete(change.table, change.key, conn.clientIdentity);
-                                        db.changes.push({
-                                            rev: ++db.revision,
-                                            source: conn.clientIdentity,
-                                            type: DELETE,
-                                            table: change.table,
-                                            key: change.key,
-                                        });
-
                                         break;
                                 }
                             }
@@ -406,6 +395,7 @@ function SyncServer(port) {
     }
 }
 
+/*
 function reduceChanges(changes) {
     // Converts an Array of change objects to a set of change objects based on its unique combination of (table ":" key).
     // If several changes were applied to the same object, the resulting set will only contain one change for that object.
@@ -489,8 +479,9 @@ function resolveConflicts(clientChanges, serverChangeSet) {
         } // else if serverChange.type is CREATE or DELETE, dont push anything to resolved, because the client change is not of any interest (CREATE or DELETE would eliminate any client change with same key!)
     });
     return resolved;
-}
+}*/
 
+/*
 function deepClone(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
@@ -501,6 +492,7 @@ function applyModifications(obj, modifications) {
     });
     return obj;
 }
+
 
 function combineCreateAndUpdate(prevChange, nextChange) {
     var clonedChange = deepClone(prevChange);// Clone object before modifying since the earlier change in db.changes[] would otherwise be altered.
@@ -547,5 +539,6 @@ function setByKeyPath(obj, keyPath, value) {
         obj[keyPath] = value;
     }
 }
+*/
 
 module.exports = SyncServer;
