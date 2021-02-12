@@ -520,6 +520,7 @@ class DB {
                     done_rev=$doneRev, 
                     deleted_rev=$deletedRev, 
                     done_until_rev=$doneUntilRev, 
+                    created_at_rev=$createdAtRev,
                     updated_at_rev=$updatedAtRev
                 `,
             argsTask
@@ -630,15 +631,6 @@ class DB {
         console.log("TASK MOD", update, JSON.stringify(task));
 
         if (update) {
-            const revFields = [
-                'descriptionRev',
-                'doneRev',
-                'deletedRev',
-                'doneUntilRev',
-                'createdAtRev',
-                'updatedAtRev'
-            ];
-
             const syncRevision = await this.db.nextSyncRevision();
             for (let field in modifications) {
                 const fieldRev = `${field}Rev`;
@@ -647,42 +639,8 @@ class DB {
                 }
             }
 
-            /*const maxRev = task['updatedAtRev'];
-
-            for (let i = 0; i < revFields.length; i++) {
-                const fieldRev = revFields[i];
-                if (task[fieldRev] === baseRevision) {
-                    task[fieldRev] = syncRevision;
-                }
-            }*/
-
-
             await this.addTask(task);
         }
-
-        /*
-        const sql = `UPDATE TASK SET 
-            ${fields.map(field => `${taskFields[field]}=?`).join(",")},
-            update_rev=?,
-            source=?
-         WHERE task_id=?`;
-
-        console.log(sql, modifications);
-
-        const allTags = allFields.filter(tags => tags.startsWith("tags."));
-        const deletedTags = allTags.filter(tag => !modifications[tag]).map(tag => tag.replace("tags.", ""));
-        const newTags = allTags.filter(tag => modifications[tag]).map(tag => tag.replace("tags.", ""));
-
-        console.log("DELETED TAGS: ", deletedTags.join(","), " ;; NEW TAGS: ", newTags.join(", "))
-
-        return this.db.run(
-            sql,
-            fields.map(field => modifications[field]).concat([syncRevision, clientIdentity, key])
-        ).then(() => {
-            if (modifications.tags) {
-                return this.addTaskTags(taskID, modifications.tags);
-            }
-        });*/
     }
 
     async update(table, key, obj, clientIdentity, syncRevision) {
