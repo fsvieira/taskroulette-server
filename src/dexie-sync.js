@@ -356,13 +356,13 @@ function SyncServer(port) {
                                 console.log(JSON.stringify(change));
                                 switch (change.type) {
                                     case CREATE:
-                                        await conn.db.create(change.table, change.key, change.obj, conn.clientIdentity);
+                                        await conn.db.create(change.table, change.key, change.obj, conn.clientIdentity, baseRevision);
                                         break;
                                     case UPDATE:
-                                        await conn.db.update(change.table, change.key, change.mods, conn.clientIdentity);
+                                        await conn.db.update(change.table, change.key, change.mods, conn.clientIdentity, baseRevision);
                                         break;
                                     case DELETE:
-                                        await conn.db.delete(change.table, change.key, conn.clientIdentity);
+                                        await conn.db.delete(change.table, change.key, conn.clientIdentity, baseRevision);
                                         break;
                                 }
                             }
