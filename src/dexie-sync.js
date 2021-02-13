@@ -68,7 +68,6 @@ async function wsAuth(conn, request) {
                         // This should be done before sending any changes to us.
 
                         // Client submits his identity or requests one
-                        console.log(request.clientIdentity);
                         if (request.clientIdentity) {
                             // Client has an identity that we have given earlier
                             conn.clientIdentity = request.clientIdentity;
@@ -77,7 +76,6 @@ async function wsAuth(conn, request) {
                             conn.clientIdentity = uuidv4();
                         }
 
-                        console.log("CON ID", conn.clientIdentity);
                         // Client requests an identity. Provide one.
                         conn.sendText(JSON.stringify({
                             type: "clientIdentity",
@@ -129,87 +127,6 @@ function SyncServer(port) {
         changes: [], // Special table that records all changes made to the db. In this simple sample, we let it grow infinitly. In real world, we would have had a regular cleanup of old changes.
         uncommittedChanges: {}, // Map<clientID,Array<change>> Changes where partial=true buffered for being committed later on.
         revision: 0, // Current revision of the database.
-        // subscribers: [], // Subscribers to when database got changes. Used by server connections to be able to push out changes to their clients as they occur.
-        /*
-                create: function (table, key, obj, clientIdentity) {
-                    console.log("CREATE", JSON.stringify({
-                        table, key, obj, clientIdentity
-                    }));
-        
-                    // Create table if it doesnt exist:
-                    db.tables[table] = db.tables[table] || {};
-                    // Put the obj into to table
-                    db.tables[table][key] = obj;
-                    // Register the change:
-                    db.changes.push({
-                        rev: ++db.revision,
-                        source: clientIdentity,
-                        type: CREATE,
-                        table: table,
-                        key: key,
-                        obj: obj
-                    });
-                    db.trigger();
-                },
-        
-                update: function (table, key, modifications, clientIdentity) {
-                    console.log("UPDATE", JSON.stringify({
-                        table, key, modifications, clientIdentity
-                    }));
-        
-                    if (db.tables[table]) {
-                        var obj = db.tables[table][key];
-                        if (obj) {
-                            applyModifications(obj, modifications);
-                            db.changes.push({
-                                rev: ++db.revision,
-                                source: clientIdentity,
-                                type: UPDATE,
-                                table: table,
-                                key: key,
-                                mods: modifications
-                            });
-                            db.trigger();
-                        }
-                    }
-                },
-                'delete': function (table, key, clientIdentity) {
-                    console.log("DELETE", JSON.stringify({
-                        table, key, clientIdentity
-                    }));
-        
-                    if (db.tables[table]) {
-                        if (db.tables[table][key]) {
-                            delete db.tables[table][key];
-                            db.changes.push({
-                                rev: ++db.revision,
-                                source: clientIdentity,
-                                type: DELETE,
-                                table: table,
-                                key: key,
-                            });
-                            db.trigger();
-                        }
-                    }
-                },
-                trigger: function () {
-                    if (!db.trigger.delayedHandle) {
-                        // Delay the trigger so that it's only called once per bunch of changes instead of being called for each single change.
-                        db.trigger.delayedHandle = setTimeout(function () {
-                            delete db.trigger.delayedHandle;
-                            db.subscribers.forEach(function (subscriber) {
-                                try { subscriber(); } catch (e) { }
-                            });
-                        }, 0);
-                    }
-                },
-                subscribe: function (fn) {
-                    db.subscribers.push(fn);
-                },
-                unsubscribe: function (fn) {
-                    db.subscribers.splice(db.subscribers.indexOf(fn), 1);
-                }
-                */
     };
 
 
@@ -224,34 +141,11 @@ function SyncServer(port) {
     // ----------------------------------------------------------------------------
     this.start = () => {
         ws.createServer(conn => {
-            console.log("Conn");
             let syncedRevision = 0; // Used when sending changes to client. Only send changes above syncedRevision since client is already in sync with syncedRevision.
 
             async function sendAnyChanges() {
-                // Get all changes after syncedRevision that was not performed by the client we're talkin' to.
-                /*
-                var changes = db.changes.filter(function (change) { return change.rev > syncedRevision && change.source !== conn.clientIdentity; });
-                // Compact changes so that multiple changes on same object is merged into a single change.
-                var reducedSet = reduceChanges(changes, conn.clientIdentity);
-                // Convert the reduced set into an array again.
-                var reducedArray = Object.keys(reducedSet).map(function (key) { return reducedSet[key]; });
-                // Notice the current revision of the database. We want to send it to client so it knows what to ask for next time.
-                var currentRevision = db.revision;
-
-                console.log("Reduced Array", reducedArray);
-                conn.sendText(JSON.stringify({
-                    type: "changes",
-                    changes: reducedArray,
-                    currentRevision: currentRevision,
-                    partial: false // Tell client that these are the only changes we are aware of. Since our mem DB is syncronous, we got all changes in one chunk.
-                }));
-
-                syncedRevision = currentRevision; // Make sure we only send revisions coming after this revision next time and not resend the above changes over and over.
-                */
                 const currentRevision = await conn.db.getSyncRevision();
-                const changes = await conn.db.getChanges(syncedRevision, conn.clientIdentity);
-
-                console.log("CurrentRevision", currentRevision);
+                const changes = await conn.db.getChanges(syncedRevision);
 
                 conn.sendText(JSON.stringify({
                     type: "changes",
@@ -264,9 +158,8 @@ function SyncServer(port) {
             }
 
             conn.on("text", async (message) => {
-                var request = JSON.parse(message);
-                console.log(message);
-                var type = request.type;
+                let request = JSON.parse(message);
+                let type = request.type;
                 if (type == "clientIdentity") {
                     wsAuth(conn, request);
                 } else if (type == "subscribe") {
@@ -276,9 +169,6 @@ function SyncServer(port) {
                     sendAnyChanges();
                     // Start subscribing for additional changes:
 
-                    /*
-                    * TODO: Subscribe to a list, when database is ready listen for database changes and send them ? 
-                    */
                     conn.db.subscribe(sendAnyChanges);
 
                 } else if (type == "changes") {
@@ -339,30 +229,22 @@ function SyncServer(port) {
                             var resolved = resolveConflicts(request.changes, reducedServerChangeSet);
                             */
 
-                            /*
-                                TODO, Solve conflicts:
-                                1. Cretate: "Insert ignore " (discard client changes if alredy exists),
-                                2. Update: update only if (rev = update_rev & client.update_at > server.update_at) or 
-                                    (rev > update_rev)
-                                3. Delete: delete wins.
-                            */
                             const baseRevision = request.baseRevision || 0;
                             const resolved = request.changes;
-
 
                             // Now apply the resolved changes:
                             for (let i = 0; i < resolved.length; i++) {
                                 const change = resolved[i];
-                                console.log(JSON.stringify(change));
+
                                 switch (change.type) {
                                     case CREATE:
-                                        await conn.db.create(change.table, change.key, change.obj, conn.clientIdentity, baseRevision);
+                                        await conn.db.create(change.table, change.key, change.obj, baseRevision);
                                         break;
                                     case UPDATE:
-                                        await conn.db.update(change.table, change.key, change.mods, conn.clientIdentity, baseRevision);
+                                        await conn.db.update(change.table, change.key, change.mods, baseRevision);
                                         break;
                                     case DELETE:
-                                        await conn.db.delete(change.table, change.key, conn.clientIdentity, baseRevision);
+                                        await conn.db.delete(change.table, change.key, baseRevision);
                                         break;
                                 }
                             }

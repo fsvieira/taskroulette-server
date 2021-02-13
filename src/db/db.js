@@ -21,7 +21,6 @@ class DBConnection {
         this.closeTimeoutID = 0;
         this.triggerTimeoutID = 0;
         this.syncRevision = null;
-        //        this.nextSyncRevision();
         this.wait = [];
     }
 
@@ -127,8 +126,7 @@ class DBConnection {
                             deleted_rev INTEGER(8) DEFAULT 0,
                             done_until_rev INTEGER(8) DEFAULT 0,
                             created_at_rev INTEGER(8) DEFAULT 0,
-                            updated_at_rev INTEGER(8) DEFAULT 0,
-                            source TEXT
+                            updated_at_rev INTEGER(8) DEFAULT 0
                         )`);
 
                         // -- Tags
@@ -155,8 +153,7 @@ class DBConnection {
                             due_date INTEGER(4),
                             created_at_rev INTEGER(8) DEFAULT 0,
                             due_date_rev INTEGER(8) DEFAULT 0,
-                            updated_at_rev INTEGER(8) DEFAULT 0,
-                            source TEXT
+                            updated_at_rev INTEGER(8) DEFAULT 0
                         )`);
 
                         // -- Relation Sprint <-> tags
@@ -285,8 +282,7 @@ class DB {
                 deleted_rev AS deletedRev,
                 done_until_rev AS doneUntilRev,
                 created_at_rev AS createdAtRev,
-                updated_at_rev AS updatedAtRev,
-                source
+                updated_at_rev AS updatedAtRev
             FROM task WHERE task_id=$taskID
         `, { $taskID: taskID });
 
@@ -299,8 +295,9 @@ class DB {
         return task;
     }
 
-    async getTasksChanges(syncRevision, clientIdentity) {
+    async getTasksChanges(syncRevision) {
         console.log("SyncRev ", syncRevision);
+
         const dbChanges = await this.db.all(`
             SELECT 
                 task_id AS key, 
@@ -319,22 +316,17 @@ class DB {
                 updated_at_rev AS updatedAtRev
             FROM task 
             WHERE 
-                updated_at_rev>$syncRevision AND source!=$source;
+                updated_at_rev>$syncRevision;
             `, {
-                $syncRevision: syncRevision,
-                $source: clientIdentity
+                $syncRevision: syncRevision
             }
         );
 
-        const fields = [
-            'description', 'done', 'deleted', 'doneUntil', 'updatedAt'
-        ];
-
         const changes = [];
+        const table = 'tasks';
 
         for (let i = 0; i < dbChanges.length; i++) {
             const {
-                table,
                 key,
                 descriptionRev,
                 doneRev,
@@ -360,32 +352,37 @@ class DB {
                 changes.push({
                     rev: updatedAtRev,
                     type: CREATE,
-                    table: 'tasks',
+                    table,
                     key,
                     obj
                 });
             }
             else {
-                const { description, done, deleted, doneUntil, updatedAt } = obj;
+                const revs = {
+                    descriptionRev,
+                    doneRev,
+                    deletedRev,
+                    doneUntilRev,
+                    createdAtRev,
+                    updatedAtRev
+                };
+
+                const mods = {};
+
+                for (let field in obj) {
+                    const fieldRev = `${field}Rev`;
+
+                    if (revs[fieldRev] && revs[fieldRev] > syncRevision) {
+                        mods[field] = obj[field];
+                    }
+                }
 
                 changes.push({
-                    rev,
+                    rev: updatedAtRev,
                     type: UPDATE,
                     table,
                     key,
-                    mods: {
-                        description,
-                        done,
-                        deleted,
-                        doneUntil,
-                        updatedAt,
-                        ...(
-                            tags.reduce((acc, { tag }) => {
-                                acc[`tags.${tag}`] = true;
-                                return acc;
-                            }, {})
-                        )
-                    }
+                    mods
                 });
             }
         }
@@ -394,66 +391,40 @@ class DB {
         return changes;
     }
 
-    async getChanges(syncRevision, clientIdentity) {
-        // return this.getTasksChanges(syncRevision, clientIdentity);
-        return [];
+    async getChanges(syncRevision) {
+        return this.getTasksChanges(syncRevision);
     }
 
     /*
         Create, Update, Delete
     */
 
-    /* Tasks 
-        TODO:
-            - save device id (clientIdentity) on table,
-            - tags should have (taskID, tag, keep=[true, null])
-                * this is needed when sending changes to clients,
-            - on task add 2 revisions (syncRevision):
-                - create revision,
-                - update revision.
-     
-            if (syncRevision <  create_revision ) {
-                send create task, 
-                send {
-                    rev: 2,
-                    source: '6c29e53c-50c6-41ec-871a-3edd3a4cdb24',
-                        type: 1,
-                        table: 'tasks',
-                        key: '9da1e79f-f4ff-42ea-b181-640b441f49b2',
-                        obj: {
-                        taskID: '9da1e79f-f4ff-42ea-b181-640b441f49b2',
-                        description: 'Chrome 4 - Brave 4 #yeah',
-                        tags: [Object], // tags is an object {sometag: true, sometag2: true}
-                        done: 0,
-                        deleted: 0,
-                        createdAt: '2021-02-06T23:56:28.018Z',
-                        updatedAt: '2021-02-07T00:00:34.056Z'
-                    }
-                }
-            }
-            else if (syncRevision < update revision) {
-                // send update task, 
-                send {
-                    description: 'Chrome 4 - Brave 4 #yeah',
-                    'tags.tag1': null,
-                    'tags.tag4': null,
-                    'tags.tag5': null,
-                    'tags.tag2': null,
-                    'tags.tag6': null,
-                    'tags.yeah': true,
-                    updatedAt: '2021-02-07T00:00:34.056Z'
-                }
-    
-                // all deleted tags from creation should be saved and sent as null. 
-            }
-            else {
-                nothing to do. 
-            }
-    */
-
     async addTaskTags(taskID, tags, syncRevision) {
         const tagsArray = Object.keys(tags);
-        console.log(JSON.stringify(tags));
+        console.log("TAGS", JSON.stringify(tags), JSON.stringify(tagsArray));
+
+        const tagsArgs = {};
+        for (let tag in tags) {
+            tagsArgs['$' + tag] = tag;
+        }
+
+        const sql = `INSERT INTO task_tags (task_id, tag, active, rev) 
+            VALUES ${tagsArray.map(tag => `($taskID, $${tag}, ${tags[tag] ? 1 : 0}, $rev)`).join(",")}
+            ON CONFLICT(task_id, tag) DO UPDATE SET
+                active=excluded.active,
+                rev=excluded.rev
+        `;
+
+        console.log(sql, JSON.stringify({
+            $taskID: taskID,
+            ...tagsArgs,
+            $rev: syncRevision
+        }));
+        await this.db.run(sql, {
+            $taskID: taskID,
+            ...tagsArgs,
+            $rev: syncRevision
+        });
 
         /*
         await this.db.run(`DELETE FROM task_tags WHERE task_id=? AND tag not in (?);`,
@@ -485,7 +456,6 @@ class DB {
                     done_until,
                     created_at,
                     updated_at,
-                    source,
                     description_rev,
                     done_rev,
                     deleted_rev,
@@ -500,7 +470,6 @@ class DB {
                     $doneUntil, 
                     $createdAt, 
                     $updatedAt, 
-                    $source,
                     $descriptionRev, 
                     $doneRev, 
                     $deletedRev, 
@@ -515,7 +484,6 @@ class DB {
                     done_until=$doneUntil, 
                     created_at=$createdAt, 
                     updated_at=$updatedAt, 
-                    source=$source,
                     description_rev=$descriptionRev, 
                     done_rev=$doneRev, 
                     deleted_rev=$deletedRev, 
@@ -526,78 +494,14 @@ class DB {
             argsTask
         );
 
-        return this.addTaskTags(task.taskID, task.tags, task.updateAtRev);
+        return this.addTaskTags(task.taskID, task.tags, task.updatedAtRev);
 
     }
-    /*
-    async createTask(
-        taskID,
-        {
-            description,
-            done,
-            deleted,
-            doneUntil = null,
-            createdAt,
-            updatedAt,
-            tags
-        },
-        clientIdentity
-    ) {
-        try {
-            console.log("ADD task!");
-            const syncRevision = await this.db.nextSyncRevision();
 
-            console.log("Sync Rev ", this.db.syncRevision, syncRevision);
-
-            await this.db.run(
-                `INSERT INTO TASK (
-                task_id,
-                description,
-                done,
-                deleted,
-                done_until,
-                created_at,
-                updated_at,
-                source,
-                description_rev,
-                done_rev,
-                deleted_rev,
-                done_until_rev,
-                created_at_rev,
-                updated_at_rev
-            ) VALUES (
-                $taskID, $description, $done, $deleted, $doneUntil, $createdAt, $updatedAt, $source,
-                $syncRevision,
-                $syncRevision,
-                $syncRevision,
-                $syncRevision,
-                $syncRevision,
-                $syncRevision
-            )`, {
-                    $taskID: taskID,
-                    $description: description,
-                    $done: done,
-                    $deleted: deleted,
-                    $doneUntil: doneUntil,
-                    $createdAt: createdAt,
-                    $updatedAt: updatedAt,
-                    $source: clientIdentity,
-                    $syncRevision: syncRevision
-                }
-            );
-
-            return this.addTaskTags(taskID, tags);
-        }
-        catch (e) {
-            console.log(e);
-        }
-    }*/
-
-    async create(table, key, obj, clientIdentity) {
+    async create(table, key, obj) {
         switch (table) {
             case "tasks": {
                 const syncRevision = await this.db.nextSyncRevision();
-                obj.source = clientIdentity;
                 obj.descriptionRev = syncRevision;
                 obj.doneRev = syncRevision;
                 obj.deletedRev = syncRevision;
@@ -605,7 +509,6 @@ class DB {
                 obj.createdAtRev = syncRevision;
                 obj.updatedAtRev = syncRevision;
 
-                // await this.createTask(key, obj, clientIdentity);
                 await this.addTask(obj);
                 break;
             }
@@ -614,21 +517,17 @@ class DB {
         this.db.trigger();
     }
 
-    async updateTask(taskID, modifications, clientIdentity, baseRevision) {
+    async updateTask(taskID, modifications, baseRevision) {
         const task = await this.getTask(taskID);
 
-        console.log(baseRevision, JSON.stringify(modifications), JSON.stringify(task));
         let update = false;
         for (let field in modifications) {
             const fieldRev = `${field}Rev`;
-            if (task[fieldRev] <= baseRevision) {
+            if (task[fieldRev] && task[fieldRev] <= baseRevision) {
                 task[field] = modifications[field];
-                // task[fieldRev] = baseRevision;
                 update = true;
             }
         }
-
-        console.log("TASK MOD", update, JSON.stringify(task));
 
         if (update) {
             const syncRevision = await this.db.nextSyncRevision();
@@ -639,19 +538,30 @@ class DB {
                 }
             }
 
+            const tags = Object.keys(modifications).reduce((acc, field) => {
+                if (field.startsWith("tags.")) {
+                    const tag = field.replace("tags.", "");
+                    acc[tag] = modifications[field] ? 1 : 0;
+                }
+
+                return acc;
+            }, {});
+
+            task.tags = tags;
+
             await this.addTask(task);
         }
     }
 
-    async update(table, key, obj, clientIdentity, syncRevision) {
+    async update(table, key, obj, syncRevision) {
         console.log("DB UPDATE", JSON.stringify({
-            table, key, obj, clientIdentity
+            table, key, obj
         }));
 
         try {
             switch (table) {
                 case "tasks": {
-                    await this.updateTask(key, obj, clientIdentity, syncRevision)
+                    await this.updateTask(key, obj, syncRevision)
                     break;
                 }
             }
@@ -662,9 +572,9 @@ class DB {
         }
     }
 
-    async delete(table, key, clientIdentity) {
+    async delete(table, key) {
         console.log("DB DELETE", JSON.stringify({
-            table, key, clientIdentity
+            table, key
         }));
 
         this.db.trigger();
